@@ -3,8 +3,10 @@ from models import User
 from sqlmodel import SQLModel, Session, create_engine, select
 import bcrypt
 
-DATABASE_URL = os.getenv("DATABASE_URL")
-engine = create_engine(DATABASE_URL, echo=True)
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./newsfoundry.db")
+connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+engine = create_engine(DATABASE_URL, echo=True, connect_args=connect_args)
+
 
 
 def init_db():
@@ -25,7 +27,13 @@ def init_db():
                     email=default_email,
                     hashed_password=bcrypt.hashpw(
                         default_password.encode("utf-8"), bcrypt.gensalt()
-                    ),
+                    ).decode("utf-8") if isinstance(bcrypt.hashpw(default_password.encode("utf-8"), bcrypt.gensalt()), bytes) else bcrypt.hashpw(default_password.encode("utf-8"), bcrypt.gensalt()),
                 )
             )
             session.commit()
+
+
+def get_session():
+    with Session(engine) as session:
+        yield session
+
