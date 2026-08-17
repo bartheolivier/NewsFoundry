@@ -13,9 +13,10 @@ def init_db():
     SQLModel.metadata.create_all(engine)
     print("Database initialized successfully")
 
-    # Creating a default user
+    # Creating or repairing default user
     default_email = "test@test.com"
     default_password = "test"
+    clean_hash = bcrypt.hashpw(default_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
     with Session(engine) as session:
         statement = select(User).where(User.email == default_email)
@@ -25,12 +26,15 @@ def init_db():
             session.add(
                 User(
                     email=default_email,
-                    hashed_password=bcrypt.hashpw(
-                        default_password.encode("utf-8"), bcrypt.gensalt()
-                    ).decode("utf-8") if isinstance(bcrypt.hashpw(default_password.encode("utf-8"), bcrypt.gensalt()), bytes) else bcrypt.hashpw(default_password.encode("utf-8"), bcrypt.gensalt()),
+                    hashed_password=clean_hash,
                 )
             )
             session.commit()
+        elif user.hashed_password.startswith("\\x"):
+            user.hashed_password = clean_hash
+            session.add(user)
+            session.commit()
+
 
 
 def get_session():

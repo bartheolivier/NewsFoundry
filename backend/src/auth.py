@@ -19,15 +19,22 @@ security = HTTPBearer(auto_error=False)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verifies a plaintext password against a bcrypt hash."""
+    """Verifies a plaintext password against a bcrypt hash, supporting standard and hex-escaped strings."""
     try:
         if isinstance(hashed_password, str):
-            hashed_bytes = hashed_password.encode("utf-8")
-        else:
+            if hashed_password.startswith("\\x"):
+                import binascii
+                hashed_bytes = binascii.unhexlify(hashed_password[2:])
+            else:
+                hashed_bytes = hashed_password.encode("utf-8")
+        elif isinstance(hashed_password, bytes):
             hashed_bytes = hashed_password
+        else:
+            return False
         return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_bytes)
     except Exception:
         return False
+
 
 
 def hash_password(password: str) -> str:
