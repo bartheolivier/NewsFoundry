@@ -324,6 +324,21 @@
   font-size: 12.5px;
 }
 
+.markdownContent a {
+  color: #7451eb;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  font-weight: 600;
+  transition: color 0.15s, opacity 0.15s;
+  word-break: break-word;
+}
+
+.markdownContent a:hover {
+  color: #4f27ca;
+  text-decoration-thickness: 2px;
+}
+
+
 /* Typing Indicator */
 .typingIndicator {
   display: flex;

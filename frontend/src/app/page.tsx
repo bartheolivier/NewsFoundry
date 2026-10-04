@@ -407,8 +407,23 @@ export default function HomePage() {
                   </div>
                   <div className={styles.assistantBubble}>
                     <div className={styles.markdownContent}>
-                      <ReactMarkdown>{msg.content}</ReactMarkdown>
+                      <ReactMarkdown
+
+
+                        components={{
+                          a: ({ ...props }) => (
+                            <a
+                              {...props}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            />
+                          ),
+                        }}
+                      >
+                        {msg.content}
+                      </ReactMarkdown>
                     </div>
+
                     <div className={styles.assistantTime}>{formatTime(msg.timestamp)}</div>
                   </div>
                 </div>
