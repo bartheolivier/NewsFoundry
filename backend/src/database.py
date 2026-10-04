@@ -20,6 +20,12 @@ def init_db():
         inspector = inspect(conn)
         existing_columns = [col["name"] for col in inspector.get_columns("chat")] if inspector.has_table("chat") else []
 
+        if "system_prompt" not in existing_columns:
+            try:
+                conn.execute(text("ALTER TABLE chat ADD COLUMN system_prompt TEXT;"))
+            except Exception as e:
+                print(f"Migration note (system_prompt): {e}")
+
         if "press_review" not in existing_columns:
             try:
                 conn.execute(text("ALTER TABLE chat ADD COLUMN press_review JSON;"))
