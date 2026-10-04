@@ -21,6 +21,7 @@ Pour faciliter la prise en main et limiter toute perte de contexte, la documenta
 - 🏛️ **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** : Architecture globale du système, arborescence complète du code source, diagrammes de séquence et flux de données.
 - 🎯 **[docs/CHOIX_TECHNIQUES.md](docs/CHOIX_TECHNIQUES.md)** : Justification détaillée de chaque choix technologique (Next.js 16, FastAPI, SQLModel, PydanticAI, LlamaIndex, PostgreSQL, UV).
 - 🚀 **[docs/GUIDE_DEMARRAGE_TESTS.md](docs/GUIDE_DEMARRAGE_TESTS.md)** : Guide pas-à-pas pour l'installation, le paramétrage des variables d'environnement et l'exécution des tests automatisés.
+- ⚡ **[docs/AMELIORATIONS_PERFORMANCE.md](docs/AMELIORATIONS_PERFORMANCE.md)** : Analyse critique de performance, métriques UX (Jakob Nielsen), streaming SSE, observabilité MLOps avec MLflow et optimisations RAG.
 
 ---
 
