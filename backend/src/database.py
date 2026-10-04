@@ -1,6 +1,7 @@
 import os
-from models import User
+from models import Chat, User
 from sqlmodel import SQLModel, Session, create_engine, select
+
 import bcrypt
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./newsfoundry.db")
