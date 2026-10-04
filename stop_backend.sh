@@ -1,0 +1,29 @@
+#!/bin/bash
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PID_FILE="$PROJECT_DIR/.backend.pid"
+
+STOPPED=false
+
+if [ -f "$PID_FILE" ]; then
+    PID=$(cat "$PID_FILE")
+    if kill -0 "$PID" 2>/dev/null; then
+        echo "Arrêt du backend FastAPI (PID: $PID)..."
+        kill "$PID" 2>/dev/null
+        STOPPED=true
+    fi
+    rm -f "$PID_FILE"
+fi
+
+# Recherche de tout autre processus écoutant sur le port 8000
+PORT_PIDS=$(lsof -t -i :8000 2>/dev/null || fuser 8000/tcp 2>/dev/null)
+if [ -n "$PORT_PIDS" ]; then
+    echo "Fermeture des processus résiduels sur le port 8000 ($PORT_PIDS)..."
+    kill -9 $PORT_PIDS 2>/dev/null
+    STOPPED=true
+fi
+
+if [ "$STOPPED" = true ]; then
+    echo "✅ Backend FastAPI arrêté avec succès."
+else
+    echo "ℹ️ Le backend FastAPI n'était pas en cours d'exécution."
+fi

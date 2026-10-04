@@ -88,6 +88,28 @@ npm run dev
 ```
 L'interface utilisateur sera accessible sur `http://localhost:3000`.
 
+### D. Scripts d'Automatisation Globale (Démonstration rapide)
+Pour simplifier le lancement lors des sessions de développement et de démonstration mentor, des scripts d'orchestration sont mis à disposition à la racine du projet :
+
+```bash
+# Lancer l'intégralité de la stack locale (PostgreSQL + Backend + Frontend)
+./start_all.sh
+
+# Vérifier le statut de tous les services (BD, API, UI)
+./status_all.sh
+
+# Arrêter proprement tous les services locaux
+./stop_all.sh
+
+# Scripts de gestion granulaire par composant :
+./start_backend.sh   # Lance uniquement l'API FastAPI (port 8000)
+./stop_backend.sh    # Arrête l'API FastAPI
+./start_frontend.sh  # Lance uniquement l'UI Next.js (port 3000)
+./stop_frontend.sh   # Arrête l'UI Next.js
+./start_db.sh        # Lance PostgreSQL (port 5433)
+./stop_db.sh         # Arrête PostgreSQL
+```
+
 ---
 
 ## 🧪 4. Exécution des Tests Automatisés

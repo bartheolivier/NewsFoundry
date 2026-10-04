@@ -14,3 +14,9 @@ wheels/
 # Local documentation & notes (keep local only)
 Documentation/
 *.log
+*.pid
+*.db
+*.sqlite
+*.sqlite3
+**/AGENTS.md
+**/CLAUDE.md
