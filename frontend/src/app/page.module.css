@@ -78,14 +78,16 @@
 }
 
 .discussionItem {
-  padding: 14px 20px;
+  padding: 12px 16px;
   border-bottom: 1px solid #f4f5f8;
   cursor: pointer;
   transition: background-color 0.15s;
   display: flex;
-  flex-direction: column;
-  gap: 3px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   text-align: left;
+  border-left: 3px solid transparent;
 }
 
 .discussionItem:hover {
@@ -94,12 +96,20 @@
 
 .discussionItemActive {
   background-color: #f0ecff;
-  border-left: 3px solid #7451eb;
+  border-left-color: #7451eb;
 }
 
 .discussionItemActive .discussionTitle {
   color: #7451eb;
   font-weight: 700;
+}
+
+.discussionInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .discussionTitle {
@@ -115,6 +125,32 @@
   font-size: 11px;
   color: #6b7280;
 }
+
+.deleteChatBtn {
+  background: none;
+  border: none;
+  color: #9ca3af;
+  padding: 6px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.3;
+  transition: all 0.15s ease;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.discussionItem:hover .deleteChatBtn,
+.discussionItemActive .deleteChatBtn {
+  opacity: 1;
+}
+
+.deleteChatBtn:hover {
+  color: #dc2626;
+  background-color: #fee2e2;
+}
+
 
 .emptyDiscussions {
   padding: 24px 20px;

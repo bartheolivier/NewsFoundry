@@ -147,3 +147,49 @@ def test_send_message_in_own_chat(client: TestClient):
     assert messages[0]["role"] == "user"
     assert messages[0]["content"] == "Quelles sont les nouvelles ?"
     assert messages[1]["role"] == "assistant"
+
+
+def test_delete_own_chat(client: TestClient):
+    token = get_token_for_user(client)
+    create_res = client.post(
+        "/chats",
+        json={"title": "Chat à supprimer"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    chat_id = create_res.json()["id"]
+
+    # Delete the chat
+    delete_res = client.delete(f"/chats/{chat_id}", headers={"Authorization": f"Bearer {token}"})
+    assert delete_res.status_code == 200
+    assert delete_res.json()["id"] == chat_id
+
+    # Verify it is gone
+    get_res = client.get(f"/chats/{chat_id}", headers={"Authorization": f"Bearer {token}"})
+    assert get_res.status_code == 404
+
+
+def test_user_isolation_cannot_delete_other_users_chat(client: TestClient, session: Session):
+    # 1. User 1 creates a chat
+    token_user1 = get_token_for_user(client, "test@test.com", "test")
+    create_res = client.post(
+        "/chats",
+        json={"title": "Chat précieux de User 1"},
+        headers={"Authorization": f"Bearer {token_user1}"},
+    )
+    chat1_id = create_res.json()["id"]
+
+    # 2. User 2 logs in
+    create_second_user(session)
+    token_user2 = get_token_for_user(client, "second@test.com", "test2")
+
+    # 3. User 2 tries to delete User 1's chat -> MUST BE 403 FORBIDDEN
+    delete_res = client.delete(
+        f"/chats/{chat1_id}",
+        headers={"Authorization": f"Bearer {token_user2}"},
+    )
+    assert delete_res.status_code == 403
+    assert "Accès interdit" in delete_res.json()["detail"]
+
+    # 4. Verify User 1 can still access their chat
+    get_res = client.get(f"/chats/{chat1_id}", headers={"Authorization": f"Bearer {token_user1}"})
+    assert get_res.status_code == 200

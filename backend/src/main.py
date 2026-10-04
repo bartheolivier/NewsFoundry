@@ -176,6 +176,32 @@ async def get_chat(
     return chat
 
 
+@app.delete("/chats/{chat_id}", status_code=status.HTTP_200_OK)
+async def delete_chat(
+    chat_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Deletes a chat session belonging strictly to the authenticated user."""
+    chat = session.get(Chat, chat_id)
+    if not chat:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Discussion non trouvée",
+        )
+
+    if chat.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Accès interdit : vous n'êtes pas autorisé à supprimer cette discussion.",
+        )
+
+    session.delete(chat)
+    session.commit()
+    return {"message": "Discussion supprimée avec succès", "id": chat_id}
+
+
+
 @app.post("/chats/{chat_id}/messages", response_model=MessageResponse)
 async def send_message(
     chat_id: int,
