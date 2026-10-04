@@ -17,8 +17,14 @@ from main import app
 from models import User
 
 
+@pytest.fixture
+def anyio_backend():
+    return "asyncio"
+
+
 @pytest.fixture(name="session")
 def session_fixture():
+
     engine = create_engine(
         "sqlite:///:memory:",
         connect_args={"check_same_thread": False},
