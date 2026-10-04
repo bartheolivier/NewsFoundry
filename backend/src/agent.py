@@ -22,7 +22,8 @@ def get_agent(custom_model: Optional[Any] = None) -> Agent:
 
     gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     openai_key = os.getenv("OPENAI_API_KEY")
-    model_name = os.getenv("LLM_MODEL", "gemini-2.5-flash-lite")
+    model_name = os.getenv("LLM_MODEL", "gemini-3.5-flash-lite")
+
 
     if gemini_key:
         from pydantic_ai.models.google import GoogleModel
