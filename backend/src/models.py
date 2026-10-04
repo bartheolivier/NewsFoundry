@@ -28,6 +28,8 @@ class Chat(SQLModel, table=True):
         default_factory=list,
         sa_column=Column(JSON, nullable=False),
     )
+    system_prompt: Optional[str] = Field(default=None)
+
 
 
 class UserRead(BaseModel):
@@ -66,6 +68,8 @@ class ChatRead(BaseModel):
     created_at: datetime
     updated_at: datetime
     messages: List[dict[str, Any]]
+    system_prompt: Optional[str] = None
+
 
 
 class MessageCreate(BaseModel):

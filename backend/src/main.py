@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
 import uvicorn
 
-from agent import run_chat_agent
+from agent import DEFAULT_SYSTEM_PROMPT, run_chat_agent
 from auth import create_access_token, get_current_user, verify_password
 from database import get_session, init_db
 from models import (
@@ -23,6 +23,8 @@ from models import (
     User,
     UserRead,
 )
+from services.world_news import get_top_news_api
+
 
 
 
@@ -121,17 +123,33 @@ async def create_chat(
     default_title = f"Discussion du {now.strftime('%d/%m/%Y')}"
     title = (chat_in.title if chat_in and chat_in.title else None) or default_title
 
+    # Fetch top headlines to contextualize the initial system prompt of this discussion
+    top_news = await get_top_news_api(country="fr", language="fr")
+    context_lines = []
+    if top_news:
+        context_lines.append("\nActualités phares du jour (contexte initial de la discussion) :")
+        for idx, art in enumerate(top_news[:5], 1):
+            context_lines.append(f"- {art['title']} : {art['summary']}")
+
+    chat_prompt = (
+        DEFAULT_SYSTEM_PROMPT + "\n" + "\n".join(context_lines)
+        if context_lines
+        else DEFAULT_SYSTEM_PROMPT
+    )
+
     chat = Chat(
         user_id=current_user.id,
         title=title,
         created_at=now,
         updated_at=now,
         messages=[],
+        system_prompt=chat_prompt,
     )
     session.add(chat)
     session.commit()
     session.refresh(chat)
     return chat
+
 
 
 @app.get("/chats/{chat_id}", response_model=ChatRead)
@@ -190,8 +208,13 @@ async def send_message(
         "timestamp": now_iso,
     }
 
-    # 2. Run PydanticAI agent with history
-    assistant_text = await run_chat_agent(chat.messages, message_in.content)
+    # 2. Run PydanticAI agent with history and saved discussion prompt
+    assistant_text = await run_chat_agent(
+        chat.messages,
+        message_in.content,
+        system_prompt_override=chat.system_prompt,
+    )
+
 
     # 3. Record assistant response
     assistant_msg = {

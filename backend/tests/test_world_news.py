@@ -168,3 +168,86 @@ async def test_agent_with_search_news_tool():
         mock_api.return_value = mock_data
         result = await agent.run("Quelles sont les actualités sur le budget ?")
         assert result is not None
+
+from services.world_news import (
+    extract_article_content_api,
+    format_article_content_for_agent,
+    get_top_news_api,
+)
+
+
+@pytest.mark.anyio
+async def test_get_top_news_api_success():
+    mock_data = {
+        "top_news": [
+            {
+                "news": [
+                    {
+                        "title": "Une du jour : Accord international",
+                        "summary": "Les pays ont signé l'accord.",
+                        "url": "https://example.com/accord",
+                        "publish_date": "2026-10-04",
+                    }
+                ]
+            }
+        ]
+    }
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = mock_data
+
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_resp
+        articles = await get_top_news_api(country="fr", language="fr", api_key="dummy_key")
+        assert len(articles) >= 1
+        assert "Accord international" in articles[0]["title"]
+
+
+@pytest.mark.anyio
+async def test_extract_article_content_api_success():
+    mock_data = {
+        "title": "Article complet",
+        "text": "Voici l'intégralité du texte de l'article avec tous ses détails...",
+        "url": "https://example.com/article-full",
+        "authors": ["Journaliste Spécialisé"],
+        "publish_date": "2026-10-04",
+    }
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = mock_data
+
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_resp
+        res = await extract_article_content_api("https://example.com/article-full", api_key="dummy_key")
+        assert res["title"] == "Article complet"
+        assert "Voici l'intégralité" in res["text"]
+
+
+@pytest.mark.anyio
+async def test_extract_article_content_api_quota_exceeded():
+    mock_resp = MagicMock()
+    mock_resp.status_code = 402
+
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_resp
+        res = await extract_article_content_api("https://example.com/article-full", api_key="dummy_key")
+        assert "error" in res
+        assert "Quota journalier" in res["error"]
+
+
+@pytest.mark.anyio
+async def test_agent_with_extract_news_tool():
+    test_model = TestModel(call_tools=["get_article_content"])
+    agent = get_agent(custom_model=test_model)
+
+    mock_extract_data = {
+        "title": "Analyse géopolitique",
+        "text": "Texte très complet analysant la situation en détail.",
+        "url": "https://example.com/geopolitique",
+        "publish_date": "2026-10-04",
+    }
+
+    with patch("agent.extract_article_content_api", new_callable=AsyncMock) as mock_api:
+        mock_api.return_value = mock_extract_data
+        result = await agent.run("Donne-moi les détails de l'article sur https://example.com/geopolitique")
+        assert result is not None

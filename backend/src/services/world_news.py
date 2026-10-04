@@ -1,20 +1,80 @@
 import os
-from typing import Any, Optional
+import time
+from typing import Any, List, Optional
 import httpx
 
 WORLD_NEWS_API_BASE = "https://api.worldnewsapi.com"
+
+# In-memory cache for top news to avoid exhausting the 50 calls/day quota
+_top_news_cache: dict[str, Any] = {"timestamp": 0, "data": []}
+CACHE_TTL_SECONDS = 3600  # 1 hour cache
+
+
+async def get_top_news_api(
+    country: str = "fr",
+    language: str = "fr",
+    api_key: Optional[str] = None,
+) -> List[dict[str, Any]]:
+    """Récupère les actualités phares du jour via la route /top-news de WorldNewsAPI.
+
+    Met en cache les résultats 1h pour préserver le quota de requêtes.
+    Retourne une liste synthétique d'articles du jour.
+    """
+    global _top_news_cache
+    now = time.time()
+    if _top_news_cache["data"] and (now - _top_news_cache["timestamp"] < CACHE_TTL_SECONDS):
+        return _top_news_cache["data"]
+
+    key = api_key or os.getenv("WORLD_NEWS_API_KEY")
+    if not key:
+        return []
+
+    url = f"{WORLD_NEWS_API_BASE}/top-news"
+    headers = {"x-api-key": key}
+    params = {"source-country": country, "language": language}
+
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            response = await client.get(url, headers=headers, params=params)
+            if response.status_code == 200:
+                data = response.json()
+                clusters = data.get("top_news", [])
+                top_articles: List[dict[str, Any]] = []
+
+                # Extract the main headline from the top 5 clusters
+                for cluster in clusters[:5]:
+                    cluster_news = cluster.get("news", [])
+                    if cluster_news:
+                        lead_article = cluster_news[0]
+                        summary = lead_article.get("summary") or lead_article.get("text", "")
+                        if len(summary) > 300:
+                            summary = summary[:300] + "..."
+                        top_articles.append({
+                            "title": lead_article.get("title", ""),
+                            "summary": summary,
+                            "url": lead_article.get("url", ""),
+                            "publish_date": lead_article.get("publish_date", ""),
+                        })
+
+                if top_articles:
+                    _top_news_cache = {"timestamp": now, "data": top_articles}
+                return top_articles
+            return []
+    except Exception:
+        return []
 
 
 async def search_news_api(
     query: str,
     language: str = "fr",
     number: int = 5,
+    country: Optional[str] = None,
+    earliest_publish_date: Optional[str] = None,
     api_key: Optional[str] = None,
 ) -> dict[str, Any]:
-    """Appelle l'API WorldNewsAPI pour rechercher des articles d'actualité récents.
+    """Appelle l'API WorldNewsAPI (/search-news) pour rechercher des articles d'actualité récents.
 
-    Gère exhaustivement les codes HTTP (200, 401, 402 quota dépassé, 429 rate limit, 500)
-    ainsi que les pannes réseau ou timeouts.
+    Gère les filtres avancés (pays, dates) et les erreurs HTTP (401, 402, 429, timeouts).
     """
     key = api_key or os.getenv("WORLD_NEWS_API_KEY")
     if not key:
@@ -33,6 +93,10 @@ async def search_news_api(
     }
     if language:
         params["language"] = language
+    if country:
+        params["source-country"] = country
+    if earliest_publish_date:
+        params["earliest-publish-date"] = earliest_publish_date
 
     try:
         async with httpx.AsyncClient(timeout=12.0) as client:
@@ -106,6 +170,46 @@ async def search_news_api(
         }
 
 
+async def extract_article_content_api(
+    url: str,
+    api_key: Optional[str] = None,
+) -> dict[str, Any]:
+    """Appelle la route /extract-news de WorldNewsAPI pour extraire le contenu intégral d'un article."""
+    key = api_key or os.getenv("WORLD_NEWS_API_KEY")
+    if not key:
+        return {
+            "error": "Clé WORLD_NEWS_API_KEY non configurée.",
+            "url": url,
+        }
+
+    api_endpoint = f"{WORLD_NEWS_API_BASE}/extract-news"
+    headers = {"x-api-key": key}
+    params = {"url": url}
+
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            response = await client.get(api_endpoint, headers=headers, params=params)
+            if response.status_code == 200:
+                data = response.json()
+                text = data.get("text", "")
+                # Limit content to ~3000 chars to avoid blowing up context window
+                if len(text) > 3000:
+                    text = text[:3000] + "\n\n[... Texte tronqué pour respecter la taille de contexte ...]"
+                return {
+                    "title": data.get("title", ""),
+                    "text": text,
+                    "url": data.get("url", url),
+                    "authors": data.get("authors", []),
+                    "publish_date": data.get("publish_date", ""),
+                }
+            elif response.status_code == 402:
+                return {"error": "Quota journalier WorldNewsAPI dépassé.", "url": url}
+            else:
+                return {"error": f"Impossible d'extraire l'article (code HTTP {response.status_code}).", "url": url}
+    except Exception as exc:
+        return {"error": f"Erreur lors de l'extraction de l'article : {str(exc)}", "url": url}
+
+
 def format_news_for_agent(result: dict[str, Any]) -> str:
     """Formate les résultats d'actualité sous forme de texte clair et structuré pour le LLM."""
     if "error" in result and result["error"]:
@@ -131,3 +235,21 @@ def format_news_for_agent(result: dict[str, Any]) -> str:
         output_lines.append("")
 
     return "\n".join(output_lines)
+
+
+def format_article_content_for_agent(result: dict[str, Any]) -> str:
+    """Formate le contenu intégral d'un article extrait pour l'agent."""
+    if "error" in result and result["error"]:
+        return f"[Erreur lors de l'extraction de l'article] {result['error']}"
+
+    title = result.get("title", "Article")
+    url = result.get("url", "")
+    publish_date = result.get("publish_date", "")
+    text = result.get("text", "")
+
+    return (
+        f"### Contenu extrait de l'article : {title}\n"
+        f"Source : {url}\n"
+        f"Date de publication : {publish_date}\n\n"
+        f"Contenu intégral :\n{text}\n"
+    )
