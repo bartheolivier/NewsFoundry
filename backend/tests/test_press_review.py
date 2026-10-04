@@ -194,3 +194,67 @@ def test_list_press_reviews_isolation(client: TestClient, session: Session):
     assert list_res2.status_code == 200
     items2 = list_res2.json()
     assert len(items2) == 0
+
+
+def test_delete_press_review_success(client: TestClient, session: Session):
+    token = get_token_for_user(client, "test@test.com", "test")
+    create_res = client.post(
+        "/chats",
+        json={"title": "Discussion à supprimer revue"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    chat_id = create_res.json()["id"]
+
+    # Créer message et revue
+    with patch("main.run_chat_agent", new_callable=AsyncMock) as mock_agent:
+        mock_agent.return_value = "Contenu"
+        client.post(
+            f"/chats/{chat_id}/messages",
+            json={"content": "Question"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    with patch("main.generate_press_review", new_callable=AsyncMock) as mock_gen:
+        mock_gen.return_value = MOCK_PRESS_REVIEW_OUTPUT
+        client.post(
+            f"/chats/{chat_id}/press-review",
+            json={"topic": "Tech"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    # Supprimer la revue de presse
+    del_res = client.delete(
+        f"/chats/{chat_id}/press-review",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert del_res.status_code == 200
+    assert del_res.json()["message"] == "Revue de presse supprimée avec succès"
+
+    # Vérifier que le chat n'a plus de revue
+    get_res = client.get(f"/chats/{chat_id}", headers={"Authorization": f"Bearer {token}"})
+    assert get_res.json()["press_review"] is None
+
+    # Vérifier que la liste /press-reviews ne la contient plus
+    list_res = client.get("/press-reviews", headers={"Authorization": f"Bearer {token}"})
+    assert not any(i["chat_id"] == chat_id for i in list_res.json())
+
+
+def test_delete_press_review_forbidden(client: TestClient, session: Session):
+    token_user1 = get_token_for_user(client, "test@test.com", "test")
+    create_res = client.post(
+        "/chats",
+        json={"title": "Chat Privé"},
+        headers={"Authorization": f"Bearer {token_user1}"},
+    )
+    chat_id = create_res.json()["id"]
+
+    # User 2 tente de supprimer la revue de presse de User 1
+    create_second_user(session)
+    token_user2 = get_token_for_user(client, "second@test.com", "test2")
+
+    del_res = client.delete(
+        f"/chats/{chat_id}/press-review",
+        headers={"Authorization": f"Bearer {token_user2}"},
+    )
+    assert del_res.status_code == 403
+    assert "Accès interdit" in del_res.json()["detail"]

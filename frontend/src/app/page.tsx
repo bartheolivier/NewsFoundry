@@ -474,6 +474,36 @@ ${review.press_review.perspectives ? `**Perspectives :**\n${review.press_review.
     }, 2000);
   };
 
+  const handleDeletePressReview = async (chatId: number) => {
+    if (!window.confirm("Êtes-vous sûr de vouloir supprimer cette revue de presse ?")) {
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/chats/${chatId}/press-review`, {
+        method: "DELETE",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (res.ok) {
+        setPressReviews((prev) => prev.filter((item) => item.chat_id !== chatId));
+        if (activeChat?.id === chatId) {
+          setActiveChat((prev) => (prev ? { ...prev, press_review: null } : null));
+        }
+        setChats((prev) =>
+          prev.map((c) => (c.id === chatId ? { ...c, press_review: null } : c))
+        );
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.detail || "Impossible de supprimer la revue de presse.");
+      }
+    } catch {
+      alert("Erreur réseau lors de la suppression de la revue de presse.");
+    }
+  };
+
   if (isLoading || !isAuthenticated) {
     return (
       <div className={styles.loadingScreen}>
@@ -898,29 +928,46 @@ ${review.press_review.perspectives ? `**Perspectives :**\n${review.press_review.
                         </div>
                       </div>
 
-                      <button
-                        type="button"
-                        className={`${styles.copyReviewBtn} ${copiedReviewId === item.chat_id ? styles.copyReviewBtnCopied : ""}`}
-                        onClick={() => handleCopyReview(item)}
-                        title="Copier la revue de presse"
-                      >
-                        {copiedReviewId === item.chat_id ? (
-                          <>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                              <polyline points="20 6 9 17 4 12" />
-                            </svg>
-                            <span>Copié !</span>
-                          </>
-                        ) : (
-                          <>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                              <rect width="13" height="13" x="9" y="9" rx="2" ry="2" />
-                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                            </svg>
-                            <span>Copier</span>
-                          </>
-                        )}
-                      </button>
+                      <div className={styles.reviewCardActions}>
+                        <button
+                          type="button"
+                          className={`${styles.copyReviewBtn} ${copiedReviewId === item.chat_id ? styles.copyReviewBtnCopied : ""}`}
+                          onClick={() => handleCopyReview(item)}
+                          title="Copier la revue de presse"
+                        >
+                          {copiedReviewId === item.chat_id ? (
+                            <>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                <polyline points="20 6 9 17 4 12" />
+                              </svg>
+                              <span>Copié !</span>
+                            </>
+                          ) : (
+                            <>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <rect width="13" height="13" x="9" y="9" rx="2" ry="2" />
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                              </svg>
+                              <span>Copier</span>
+                            </>
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          className={styles.deleteReviewBtn}
+                          onClick={() => handleDeletePressReview(item.chat_id)}
+                          title="Supprimer cette revue de presse"
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="3 6 5 6 21 6" />
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            <line x1="10" y1="11" x2="10" y2="17" />
+                            <line x1="14" y1="11" x2="14" y2="17" />
+                          </svg>
+                          <span>Supprimer</span>
+                        </button>
+                      </div>
                     </div>
 
                     <div className={styles.reviewCardBody}>

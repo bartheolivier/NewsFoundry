@@ -395,6 +395,39 @@ async def create_chat_press_review(
     return chat
 
 
+@app.delete("/chats/{chat_id}/press-review", status_code=status.HTTP_200_OK)
+async def delete_chat_press_review(
+    chat_id: int,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Supprime la revue de presse associée à une discussion de l'utilisateur."""
+    chat = session.get(Chat, chat_id)
+    if not chat:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Discussion non trouvée",
+        )
+
+    if chat.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Accès interdit : vous n'êtes pas autorisé à modifier cette discussion.",
+        )
+
+    if not chat.press_review:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Aucune revue de presse n'est associée à cette discussion.",
+        )
+
+    chat.press_review = None
+    chat.updated_at = datetime.now(timezone.utc)
+    session.add(chat)
+    session.commit()
+    return {"message": "Revue de presse supprimée avec succès", "chat_id": chat_id}
+
+
 @app.get("/press-reviews", response_model=list[PressReviewItem])
 async def list_press_reviews(
     current_user: User = Depends(get_current_user),
