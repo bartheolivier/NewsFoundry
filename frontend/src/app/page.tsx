@@ -331,6 +331,7 @@ export default function HomePage() {
                     timestamp: assistantResponse.timestamp,
                   },
                 ],
+                loaded_articles: assistantResponse.loaded_articles || prev.loaded_articles || [],
               }
             : null
         );
@@ -383,7 +384,7 @@ export default function HomePage() {
     }
   };
 
-  const handleOpenModal = () => {
+  const handleOpenModal = async () => {
     if (!activeChat || activeChat.messages.length === 0) {
       alert("Veuillez d'abord échanger avec l'assistant dans une discussion avant de générer une revue de presse.");
       return;
@@ -392,6 +393,19 @@ export default function HomePage() {
     setReviewTopic(defaultTopic);
     setModalError(null);
     setIsModalOpen(true);
+
+    // Refresh activeChat from server to ensure loaded_articles is 100% synchronized
+    try {
+      const res = await fetch(`${API_BASE_URL}/chats/${activeChat.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const freshChat = await res.json();
+        setActiveChat(freshChat);
+      }
+    } catch {
+      // ignore
+    }
   };
 
   const handleGeneratePressReview = async (e: React.FormEvent) => {

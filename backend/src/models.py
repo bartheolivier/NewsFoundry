@@ -132,5 +132,6 @@ class MessageResponse(BaseModel):
     role: str
     content: str
     timestamp: str
+    loaded_articles: List[str] = []
 
 

@@ -325,6 +325,7 @@ async def send_message(
         role="assistant",
         content=assistant_text,
         timestamp=assistant_msg["timestamp"],
+        loaded_articles=chat.loaded_articles or [],
     )
 
 
