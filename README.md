@@ -1,67 +1,91 @@
-# NewsFoundry
+# 📰 NewsFoundry
 
-## Besoins fonctionnels
+> **Plateforme SaaS d'assistance journalistique par IA et de génération de revues de presse automatiques enrichies par RAG.**
 
-- L'utilisateur peut se connecter.
-- L’utilisateur peut voir la liste de ses discussions passées.
-- L’utilisateur peut démarrer une nouvelle discussion ou reprendre une ancienne discussion.
-- Un utilisateur n’est pas autorisé à accéder aux discussions d’un autre utilisateur.
-- Le LLM répond aux messages envoyés par l’utilisateur.
-- L'utilisateur peut faire générer une revue de presse à partir d'une discussion.
-- L'application doit afficher des messages d'erreur à l'utilisateur final en cas d'erreur.
+NewsFoundry accompagne les journalistes, pigistes et professionnels de l'information dans leurs travaux d'investigation : recherche d'actualités mondiales en temps réel, fact-checking, lecture approfondie d'articles et rédaction automatisée de revues de presse thématiques hautement qualifiées grâce à **PydanticAI** et **LlamaIndex**.
 
-## Prérequis
+---
 
+## 🌐 Déploiements Cloud en Production
+
+- **Interface Frontend (Vercel) :** [https://news-foundry-6qc6tpcon-bartheoliviers-projects.vercel.app](https://news-foundry-6qc6tpcon-bartheoliviers-projects.vercel.app)
+- **API Backend & Base PostgreSQL (Railway) :** [https://newsfoundry-production-e3fe.up.railway.app](https://newsfoundry-production-e3fe.up.railway.app)
+- **Documentation API Swagger :** [https://newsfoundry-production-e3fe.up.railway.app/docs](https://newsfoundry-production-e3fe.up.railway.app/docs)
+
+---
+
+## 📚 Documentation Technique Détaillée
+
+Pour faciliter la prise en main et limiter toute perte de contexte, la documentation technique est organisée dans le dossier [`docs/`](docs/) :
+
+- 🏛️ **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** : Architecture globale du système, arborescence complète du code source, diagrammes de séquence et flux de données.
+- 🎯 **[docs/CHOIX_TECHNIQUES.md](docs/CHOIX_TECHNIQUES.md)** : Justification détaillée de chaque choix technologique (Next.js 16, FastAPI, SQLModel, PydanticAI, LlamaIndex, PostgreSQL, UV).
+- 🚀 **[docs/GUIDE_DEMARRAGE_TESTS.md](docs/GUIDE_DEMARRAGE_TESTS.md)** : Guide pas-à-pas pour l'installation, le paramétrage des variables d'environnement et l'exécution des tests automatisés.
+
+---
+
+## ✨ Fonctionnalités Clés
+
+1. **Authentification & Sécurité Multi-Tenant :**
+   - Connexion sécurisée par tokens JWT avec expiration à 24h et hachage de mot de passe `bcrypt`.
+   - Isolation stricte des données : chaque journaliste n'a accès qu'à ses propres discussions et revues de presse (rejet HTTP 403 Forbidden sur toute tentative d'accès non autorisé).
+2. **Agent de Chat Journaliste (PydanticAI) :**
+   - Recherche en direct des actualités mondiales via l'outil `search_news` (WorldNewsAPI).
+   - Lecture approfondie et extraction du contenu textuel intégral via l'outil `get_article_content`.
+   - Citation systématique des sources et liens markdown originaux vers les médias.
+   - Suivi transparent des articles explorés grâce à l'injection de dépendances `RunContext[ChatDeps]`.
+3. **Indexation Vectorielle RAG en Mémoire (LlamaIndex) :**
+   - Indexation vectorielle éphémère (`VectorStoreIndex`) sans base vectorielle externe lourde.
+   - Recherche sémantique ciblée sur le thème de la revue de presse pour extraire uniquement les segments d'articles les plus denses et pertinents.
+4. **Agent Spécialisé de Revue de Presse (*Structured Outputs*) :**
+   - Second agent dédié agissant comme rédacteur en chef expert.
+   - Sorties strictement typées via le schéma `PressReviewOutput` (titre, thème, synthèse globale, résumés d'articles, perspectives).
+   - Onglet dédié permettant de consulter, copier en un clic et supprimer les revues de presse générées.
+
+---
+
+## ⚡ Démarrage Rapide en Local
+
+### 1. Prérequis
 - Docker
-- Python 3.13
-- uv
-- Node.js 22.19
+- Python 3.13 (géré par [uv](https://docs.astral.sh/uv/))
+- Node.js 22+
 
-## Installation
+### 2. Base de Données
+```bash
+docker run -d --name newsfoundry_db -e POSTGRES_USER=user -e POSTGRES_PASSWORD=password -e POSTGRES_DB=newsfoundry -p 5432:5432 postgres:17
+```
 
-1. Cloner le repository
-2. Démarrer le backend aved les instructions du fichier `backend/README.md`
-3. Initialiser un projet Next.js dans un dossier `frontend/`
+### 3. Backend
+```bash
+cd backend
+cp .env.example .env    # Configurer GEMINI_API_KEY et WORLD_NEWS_API_KEY
+uv sync
+PYTHONPATH=src uv run --env-file .env uvicorn main:app --reload --port 8000
+```
 
-## Choix technologiques
+### 4. Frontend
+```bash
+cd frontend
+npm install
+npm run dev
+```
+Accédez ensuite à `http://localhost:3000`.
 
-### Frontend
+---
 
-**Next.js**
+## 🧪 Tests Automatisés (45 tests)
 
-### Backend
+Le projet intègre une suite complète de **45 tests automatisés** validés dans le pipeline d'intégration continue GitHub Actions :
 
-- **Python** pour bénéficier de son écosystème de librairies IA
-- **FastAPI** pour le développement de l'API
-- Connection avec des **JWT**
-- **SQLModel** comme ORM : fait pour bien marcher avec FastAPI.
-  - Branché à une base de données **PostgreSQL**
-- **PydanticAI** comme client qui s'intégrera aussi bien avec les autres outils de la stack backend
-- Attention à la **sécurité des données**. On ne veut pas qu’un utilisateur puisse accéder aux chats d’un autre utilisateur ou les modifier.
-  - Le produit aura rapidement beaucoup d’utilisateurs professionnels il est donc crucial de garantir le fonctionnement correct de cette fonctionnalité par l'**implémentation de tests automatisés qui s'exécutent par une Github Action**.
-- Pour les sources de news, on utilisera l’API [**WorldNewsAPI**](https://worldnewsapi.com/).
-- Pour déployer on mettra le frontend sur **Vercel** et le backend sur **Railway**.
+```bash
+cd backend
+PYTHONPATH=src uv run --env-file .env pytest -v
+```
 
-### Documentation
-
-Une documentation claire devra être rédigée et ajoutée dans un dossier `docs/`.
-
-Elle devra inclure des suggestions d'amélioration concernant la qualité et la performance de la partie IA du système. Chaque recommandation doit être illustrée par une une métrique ou un exemple, une proposition d’implémentation réalisable, ainsi qu'un objectif mesurable.
-
-
-Par ailleurs, pour faciliter la maintenance du projet à long terme, le code du projet devra être clair et bien structuré, accompagné de commentaires qui expliquent les sections de code complexes.
-
-### Deploiement
-
-L'url de l'application déployée devra être ajouté dans la documentation.
-
-#### Frontend
-
-Déployer le frontend sur [Vercel](https://vercel.com/dashboard).
-
-#### Backend
-
-Déployer le backend sur [Railway](https://railway.com/dashboard).
-
-> Un Dockerfile est déjà présent pour faciliter le déploiement. Il faudra simplement référencer `backend/` comme "Root Directory" après avoir connecté le repository.
-> La base de donnée postgres peut être créée via Railway dans le même projet que le backend.
+Vérification du frontend Next.js :
+```bash
+cd frontend
+npm run build
+npm run lint
+```
