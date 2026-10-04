@@ -119,3 +119,108 @@ async def run_chat_agent(
     message_history = build_model_messages(history)
     result = await agent.run(user_prompt, message_history=message_history)
     return str(result.output)
+
+
+# ---------------------------------------------------------
+# Agent spécialisé pour la Revue de Presse (Étape 7)
+# ---------------------------------------------------------
+
+PRESS_REVIEW_SYSTEM_PROMPT = """Tu es le rédacteur en chef expert de NewsFoundry, spécialisé dans la rédaction de revues de presse journalistiques de référence.
+Ton rôle est d'analyser l'intégralité des recherches, dépêches, articles et échanges issus d'une discussion journalistique pour composer une revue de presse structurée, claire, neutre et percutante sur le thème demandé.
+
+Règles impératives de rédaction :
+1. Titre : Propose un grand titre en majuscules (ex: 'REVUE DE PRESSE : TRANSITION ÉNERGÉTIQUE ET MOBILITÉ ÉLECTRIQUE').
+2. Thème : Rappelle le sujet ciblé.
+3. Synthèse générale : Développe une synthèse d'ensemble soignée (2 à 4 paragraphes) articulant les faits essentiels, chiffres marquants et tendances de fond.
+4. Synthèse des articles : Identifie tous les articles clés et sources cités dans la discussion se rapportant au thème. Pour chacun, précise le titre, la source, le lien URL d'origine si disponible, et un résumé percutant de son apport.
+5. Perspectives : Conclus avec les enjeux d'avenir, les prochaines échéances ou les questions en suspens.
+6. Structured Output : Respecte rigoureusement le schéma JSON imposé.
+"""
+
+
+def get_press_review_agent(
+    custom_model: Optional[Any] = None,
+) -> Agent:
+    """Instancie un agent PydanticAI spécialisé dans la synthèse de revue de presse avec Structured Output."""
+    from models import PressReviewOutput
+
+    prompt = PRESS_REVIEW_SYSTEM_PROMPT
+
+    if custom_model is not None:
+        return Agent(custom_model, output_type=PressReviewOutput, system_prompt=prompt)
+
+    gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+    openai_key = os.getenv("OPENAI_API_KEY")
+    model_name = os.getenv("LLM_MODEL", "gemini-3.5-flash-lite")
+
+    if gemini_key:
+        from pydantic_ai.models.google import GoogleModel
+        from pydantic_ai.providers.google import GoogleProvider
+
+        provider = GoogleProvider(api_key=gemini_key)
+        model = GoogleModel(model_name, provider=provider)
+        return Agent(model, output_type=PressReviewOutput, system_prompt=prompt)
+    elif openai_key:
+        return Agent(
+            f"openai:{os.getenv('LLM_MODEL', 'gpt-4o-mini')}",
+            output_type=PressReviewOutput,
+            system_prompt=prompt,
+        )
+    else:
+        from models import ArticleSummary
+
+        dummy_review = PressReviewOutput(
+            title="REVUE DE PRESSE : ACTUALITÉS DU JOUR",
+            topic="Actualités",
+            general_summary="Synthèse par défaut en mode test.",
+            articles=[
+                ArticleSummary(
+                    title="Exemple de dépêche",
+                    source="NewsFoundry",
+                    url="https://example.com/info",
+                    summary="Résumé de l'article.",
+                )
+            ],
+            perspectives="Perspectives à observer.",
+        )
+        return Agent(
+            TestModel(custom_output_args=dummy_review.model_dump()),
+            output_type=PressReviewOutput,
+            system_prompt=prompt,
+        )
+
+
+async def generate_press_review(
+    chat_messages: List[dict[str, Any]],
+    topic: str,
+    system_prompt: Optional[str] = None,
+    agent_override: Optional[Agent] = None,
+):
+    """Génère une revue de presse structurée sur le sujet donné à partir de l'historique de discussion."""
+    agent = agent_override or get_press_review_agent()
+
+    history_lines: List[str] = []
+    if system_prompt:
+        history_lines.append(f"--- Contexte initial de la session ---\n{system_prompt}\n")
+
+    history_lines.append("--- Échanges de la discussion ---")
+    for msg in chat_messages:
+        role_label = "Journaliste" if msg.get("role") == "user" else "Assistant IA"
+        content = msg.get("content", "")
+        history_lines.append(f"{role_label} :\n{content}\n")
+
+    conversation_context = "\n".join(history_lines)
+
+    user_prompt = f"""Voici l'ensemble de la discussion de travail et des recherches effectuées avec le journaliste :
+
+{conversation_context}
+
+-------------------------
+SUJET CIBLÉ DE LA REVUE DE PRESSE : {topic}
+-------------------------
+En te basant rigoureusement sur les faits, articles et données partagés dans cette discussion, produis la revue de presse structurée demandée sur le sujet '{topic}'.
+"""
+
+    result = await agent.run(user_prompt)
+    return result.output
+

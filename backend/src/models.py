@@ -29,6 +29,10 @@ class Chat(SQLModel, table=True):
         sa_column=Column(JSON, nullable=False),
     )
     system_prompt: Optional[str] = Field(default=None)
+    press_review: Optional[dict[str, Any]] = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+    )
 
 
 
@@ -64,6 +68,7 @@ class ChatSummary(BaseModel):
     created_at: datetime
     updated_at: datetime
     message_count: int
+    press_review: Optional[dict[str, Any]] = None
 
 
 class ChatRead(BaseModel):
@@ -74,6 +79,41 @@ class ChatRead(BaseModel):
     updated_at: datetime
     messages: List[dict[str, Any]]
     system_prompt: Optional[str] = None
+    press_review: Optional[dict[str, Any]] = None
+
+
+class ArticleSummary(BaseModel):
+    title: str = Field(description="Titre de l'article")
+    source: Optional[str] = Field(default=None, description="Nom du média, auteur ou source")
+    url: Optional[str] = Field(default=None, description="Lien URL d'origine vers l'article si mentionné")
+    summary: str = Field(description="Synthèse concise des points clés apportés par l'article")
+
+
+class PressReviewOutput(BaseModel):
+    title: str = Field(description="Titre percutant de la revue de presse en majuscules (ex: ACTUALITÉS POLITIQUES - SEMAINE 39)")
+    topic: str = Field(description="Thème ou sujet de la revue de presse")
+    general_summary: str = Field(description="Synthèse globale claire et structurée des événements et enjeux majeurs")
+    articles: List[ArticleSummary] = Field(default_factory=list, description="Liste des synthèses des articles pertinents abordés")
+    perspectives: Optional[str] = Field(default=None, description="Perspectives d'évolution, calendrier à venir ou conclusion")
+
+
+class PressReviewRead(BaseModel):
+    title: str
+    topic: str
+    general_summary: str
+    articles: List[ArticleSummary] = Field(default_factory=list)
+    perspectives: Optional[str] = None
+    generated_at: str
+
+
+class PressReviewCreate(BaseModel):
+    topic: str
+
+
+class PressReviewItem(BaseModel):
+    chat_id: int
+    chat_title: str
+    press_review: PressReviewRead
 
 
 

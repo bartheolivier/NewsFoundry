@@ -6,6 +6,28 @@ import ReactMarkdown from "react-markdown";
 import { useAuth } from "@/context/AuthContext";
 import styles from "./page.module.css";
 
+interface ArticleSummary {
+  title: string;
+  source?: string;
+  url?: string;
+  summary: string;
+}
+
+interface PressReviewData {
+  title: string;
+  topic: string;
+  general_summary: string;
+  articles: ArticleSummary[];
+  perspectives?: string;
+  generated_at: string;
+}
+
+interface PressReviewItem {
+  chat_id: number;
+  chat_title: string;
+  press_review: PressReviewData;
+}
+
 interface ChatSummary {
   id: number;
   user_id: number;
@@ -13,8 +35,8 @@ interface ChatSummary {
   created_at: string;
   updated_at: string;
   message_count: number;
+  press_review?: PressReviewData | null;
 }
-
 
 interface Message {
   role: "user" | "assistant";
@@ -29,6 +51,7 @@ interface ChatDetail {
   created_at: string;
   updated_at: string;
   messages: Message[];
+  press_review?: PressReviewData | null;
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -46,6 +69,16 @@ export default function HomePage() {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState("");
 
+  // Press Review state (Étape 7)
+  const [activeTab, setActiveTab] = useState<"chat" | "reviews">("chat");
+  const [pressReviews, setPressReviews] = useState<PressReviewItem[]>([]);
+  const [isLoadingReviews, setIsLoadingReviews] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [reviewTopic, setReviewTopic] = useState("");
+  const [isGeneratingReview, setIsGeneratingReview] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [copiedReviewId, setCopiedReviewId] = useState<number | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Authentication check
@@ -55,10 +88,11 @@ export default function HomePage() {
     }
   }, [isAuthenticated, isLoading, router]);
 
-  // Load chats on initial mount
+  // Load chats and press reviews on initial mount
   useEffect(() => {
     if (token) {
       loadChats();
+      loadPressReviews();
     }
   }, [token]);
 
@@ -83,8 +117,29 @@ export default function HomePage() {
     }
   };
 
+  const loadPressReviews = async () => {
+    if (!token) return;
+    setIsLoadingReviews(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/press-reviews`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setPressReviews(data);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setIsLoadingReviews(false);
+    }
+  };
+
   const handleSelectChat = async (chatId: number) => {
     setIsEditingTitle(false);
+    setActiveTab("chat");
     setIsLoadingChat(true);
     setErrorMessage(null);
     try {
@@ -309,6 +364,100 @@ export default function HomePage() {
     }
   };
 
+  const formatLongDate = (isoString?: string) => {
+    if (!isoString) return "";
+    try {
+      const date = new Date(isoString);
+      return date.toLocaleDateString("fr-FR", {
+        weekday: "long",
+        day: "numeric",
+        month: "long",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return "";
+    }
+  };
+
+  const handleOpenModal = () => {
+    if (!activeChat || activeChat.messages.length === 0) {
+      alert("Veuillez d'abord échanger avec l'assistant dans une discussion avant de générer une revue de presse.");
+      return;
+    }
+    const defaultTopic = activeChat.title.startsWith("Discussion du ") ? "" : activeChat.title;
+    setReviewTopic(defaultTopic);
+    setModalError(null);
+    setIsModalOpen(true);
+  };
+
+  const handleGeneratePressReview = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!activeChat) return;
+    const topic = reviewTopic.trim();
+    if (!topic) {
+      setModalError("Veuillez renseigner un thème pour la revue de presse.");
+      return;
+    }
+
+    setIsGeneratingReview(true);
+    setModalError(null);
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/chats/${activeChat.id}/press-review`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ topic }),
+      });
+
+      if (res.ok) {
+        const updatedChat = await res.json();
+        setActiveChat(updatedChat);
+        await loadChats();
+        await loadPressReviews();
+        setIsModalOpen(false);
+        setActiveTab("reviews");
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setModalError(err.detail || "Erreur lors de la génération de la revue de presse.");
+      }
+    } catch {
+      setModalError("Impossible de contacter le serveur.");
+    } finally {
+      setIsGeneratingReview(false);
+    }
+  };
+
+  const handleCopyReview = (review: PressReviewItem) => {
+    const textToCopy = `**${review.press_review.title}**
+Date : ${formatLongDate(review.press_review.generated_at)}
+Thème : ${review.press_review.topic}
+
+**Synthèse générale des principales actualités :**
+${review.press_review.general_summary}
+
+**Articles et sources analysés :**
+${review.press_review.articles
+  .map(
+    (a) =>
+      `• **${a.title}**${a.source ? ` (${a.source})` : ""}${a.url ? ` : ${a.url}` : ""}\n  ${a.summary}`
+  )
+  .join("\n")}
+
+${review.press_review.perspectives ? `**Perspectives :**\n${review.press_review.perspectives}` : ""}
+`;
+
+    navigator.clipboard.writeText(textToCopy);
+    setCopiedReviewId(review.chat_id);
+    setTimeout(() => {
+      setCopiedReviewId(null);
+    }, 2000);
+  };
+
   if (isLoading || !isAuthenticated) {
     return (
       <div className={styles.loadingScreen}>
@@ -411,8 +560,40 @@ export default function HomePage() {
         {/* Top bar */}
         <header className={styles.topBar}>
           <div className={styles.topBarLeft}>
-            {activeChat && (
-              <div className={styles.chatTitleContainer}>
+            <div className={styles.headerNavTabs}>
+              <button
+                type="button"
+                className={`${styles.navTabBtn} ${activeTab === "chat" ? styles.navTabBtnActive : ""}`}
+                onClick={() => setActiveTab("chat")}
+                title="Accéder au chat"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+                <span>Chat</span>
+              </button>
+              <button
+                type="button"
+                className={`${styles.navTabBtn} ${activeTab === "reviews" ? styles.navTabBtnActive : ""}`}
+                onClick={() => {
+                  setActiveTab("reviews");
+                  loadPressReviews();
+                }}
+                title="Consulter les revues de presse"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <polyline points="14 2 14 8 20 8" />
+                  <line x1="16" y1="13" x2="8" y2="13" />
+                  <line x1="16" y1="17" x2="8" y2="17" />
+                  <polyline points="10 9 9 9 8 9" />
+                </svg>
+                <span>Revue de presse</span>
+              </button>
+            </div>
+
+            {activeTab === "chat" && activeChat && (
+              <div className={styles.chatTitleContainer} style={{ marginLeft: 8 }}>
                 {isEditingTitle ? (
                   <form
                     className={styles.editTitleForm}
@@ -476,8 +657,8 @@ export default function HomePage() {
                 </span>
               </div>
             )}
-            {!activeChat && (
-              <div className={styles.chatTitleContainer}>
+            {activeTab === "chat" && !activeChat && (
+              <div className={styles.chatTitleContainer} style={{ marginLeft: 8 }}>
                 <h2 className={styles.chatTitle}>Nouvelle discussion</h2>
                 <span className={styles.chatSubtitle}>Assistant NewsFoundry</span>
               </div>
@@ -487,7 +668,7 @@ export default function HomePage() {
           <button
             type="button"
             className={styles.pressReviewBtn}
-            onClick={() => alert("La génération de revue de presse sera activée à l'étape 7 !")}
+            onClick={handleOpenModal}
             title="Générer une revue de presse"
           >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -501,63 +682,99 @@ export default function HomePage() {
           </button>
         </header>
 
-        {/* Messages or Welcome View */}
-        <div className={styles.messagesContainer}>
-          {errorMessage && (
-            <div style={{ padding: "10px 14px", backgroundColor: "#fef2f2", color: "#dc2626", borderRadius: 8, fontSize: 13, border: "1px solid #fecaca" }}>
-              {errorMessage}
-            </div>
-          )}
+        {/* Tab 1: Chat View */}
+        {activeTab === "chat" && (
+          <>
+            {/* Messages or Welcome View */}
+            <div className={styles.messagesContainer}>
+              {errorMessage && (
+                <div style={{ padding: "10px 14px", backgroundColor: "#fef2f2", color: "#dc2626", borderRadius: 8, fontSize: 13, border: "1px solid #fecaca" }}>
+                  {errorMessage}
+                </div>
+              )}
 
-          {(!activeChat || activeChat.messages.length === 0) && (
-            <div className={styles.welcomeCard}>
-              <div className={styles.welcomeIconWrapper}>
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect width="18" height="14" x="3" y="7" rx="3" />
-                  <path d="M12 2v5" />
-                  <path d="M9 13h.01" />
-                  <path d="M15 13h.01" />
-                </svg>
-              </div>
-
-              <h1 className={styles.welcomeTitle}>Assistant Revue de Presse IA</h1>
-
-              <p className={styles.welcomeDesc}>
-                Posez-moi des questions sur l'actualité récente ou demandez-moi de préparer une synthèse sur un sujet spécifique.
-              </p>
-
-              <div className={styles.examplesHeader}>Exemples :</div>
-              <ul className={styles.examplesList}>
-                <li onClick={() => handleSendMessage("Quelles sont les dernières nouvelles en politique ?")}>
-                  &ldquo;Quelles sont les dernières nouvelles en politique ?&rdquo;
-                </li>
-                <li onClick={() => handleSendMessage("Génère une revue de presse sur la technologie")}>
-                  &ldquo;Génère une revue de presse sur la technologie&rdquo;
-                </li>
-                <li onClick={() => handleSendMessage("Résume l'actualité économique de la semaine")}>
-                  &ldquo;Résume l'actualité économique de la semaine&rdquo;
-                </li>
-              </ul>
-            </div>
-          )}
-
-          {activeChat &&
-            activeChat.messages.map((msg, index) =>
-              msg.role === "user" ? (
-                <div key={index} className={styles.messageRowUser}>
-                  <div className={styles.userBubble}>
-                    <div>{msg.content}</div>
-                    <div className={styles.messageTime}>{formatTime(msg.timestamp)}</div>
-                  </div>
-                  <div className={styles.userAvatar} aria-hidden="true">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-                      <circle cx="12" cy="7" r="4" />
+              {(!activeChat || activeChat.messages.length === 0) && (
+                <div className={styles.welcomeCard}>
+                  <div className={styles.welcomeIconWrapper}>
+                    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect width="18" height="14" x="3" y="7" rx="3" />
+                      <path d="M12 2v5" />
+                      <path d="M9 13h.01" />
+                      <path d="M15 13h.01" />
                     </svg>
                   </div>
+
+                  <h1 className={styles.welcomeTitle}>Assistant Revue de Presse IA</h1>
+
+                  <p className={styles.welcomeDesc}>
+                    Posez-moi des questions sur l'actualité récente ou demandez-moi de préparer une synthèse sur un sujet spécifique.
+                  </p>
+
+                  <div className={styles.examplesHeader}>Exemples :</div>
+                  <ul className={styles.examplesList}>
+                    <li onClick={() => handleSendMessage("Quelles sont les dernières nouvelles en politique ?")}>
+                      &ldquo;Quelles sont les dernières nouvelles en politique ?&rdquo;
+                    </li>
+                    <li onClick={() => handleSendMessage("Génère une revue de presse sur la technologie")}>
+                      &ldquo;Génère une revue de presse sur la technologie&rdquo;
+                    </li>
+                    <li onClick={() => handleSendMessage("Résume l'actualité économique de la semaine")}>
+                      &ldquo;Résume l'actualité économique de la semaine&rdquo;
+                    </li>
+                  </ul>
                 </div>
-              ) : (
-                <div key={index} className={styles.messageRowAssistant}>
+              )}
+
+              {activeChat &&
+                activeChat.messages.map((msg, index) =>
+                  msg.role === "user" ? (
+                    <div key={index} className={styles.messageRowUser}>
+                      <div className={styles.userBubble}>
+                        <div>{msg.content}</div>
+                        <div className={styles.messageTime}>{formatTime(msg.timestamp)}</div>
+                      </div>
+                      <div className={styles.userAvatar} aria-hidden="true">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+                          <circle cx="12" cy="7" r="4" />
+                        </svg>
+                      </div>
+                    </div>
+                  ) : (
+                    <div key={index} className={styles.messageRowAssistant}>
+                      <div className={styles.assistantAvatar} aria-hidden="true">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <rect width="18" height="14" x="3" y="7" rx="3" />
+                          <path d="M12 2v5" />
+                          <path d="M9 13h.01" />
+                          <path d="M15 13h.01" />
+                        </svg>
+                      </div>
+                      <div className={styles.assistantBubble}>
+                        <div className={styles.markdownContent}>
+                          <ReactMarkdown
+                            components={{
+                              a: ({ ...props }) => (
+                                <a
+                                  {...props}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                />
+                              ),
+                            }}
+                          >
+                            {msg.content}
+                          </ReactMarkdown>
+                        </div>
+
+                        <div className={styles.assistantTime}>{formatTime(msg.timestamp)}</div>
+                      </div>
+                    </div>
+                  )
+                )}
+
+              {isSending && (
+                <div className={styles.messageRowAssistant}>
                   <div className={styles.assistantAvatar} aria-hidden="true">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <rect width="18" height="14" x="3" y="7" rx="3" />
@@ -567,87 +784,231 @@ export default function HomePage() {
                     </svg>
                   </div>
                   <div className={styles.assistantBubble}>
-                    <div className={styles.markdownContent}>
-                      <ReactMarkdown
-
-
-                        components={{
-                          a: ({ ...props }) => (
-                            <a
-                              {...props}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            />
-                          ),
-                        }}
-                      >
-                        {msg.content}
-                      </ReactMarkdown>
+                    <div className={styles.typingIndicator}>
+                      <span>L'assistant réfléchit</span>
+                      <div className={styles.dotPulse}>
+                        <span className={styles.dot}></span>
+                        <span className={styles.dot}></span>
+                        <span className={styles.dot}></span>
+                      </div>
                     </div>
-
-                    <div className={styles.assistantTime}>{formatTime(msg.timestamp)}</div>
                   </div>
                 </div>
-              )
+              )}
+
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* Input Bar */}
+            <div className={styles.bottomBar}>
+              <form
+                className={styles.inputForm}
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSendMessage();
+                }}
+              >
+                <input
+                  type="text"
+                  className={styles.messageInput}
+                  placeholder="Posez une question sur l'actualité..."
+                  value={inputMessage}
+                  onChange={(e) => setInputMessage(e.target.value)}
+                  disabled={isSending}
+                />
+                <button
+                  type="submit"
+                  className={styles.sendBtn}
+                  disabled={isSending || !inputMessage.trim()}
+                  aria-label="Envoyer"
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="22" y1="2" x2="11" y2="13" />
+                    <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                  </svg>
+                </button>
+              </form>
+            </div>
+          </>
+        )}
+
+        {/* Tab 2: Revue de presse View */}
+        {activeTab === "reviews" && (
+          <div className={styles.reviewsViewContainer}>
+            <div className={styles.reviewsHeader}>
+              <h1 className={styles.reviewsTitle}>Revues de Presse</h1>
+              <p className={styles.reviewsSubtitle}>Consultez et gérez vos revues de presse générées par l'IA</p>
+            </div>
+
+            {isLoadingReviews && (
+              <div style={{ textAlign: "center", padding: "40px", color: "#6b7280" }}>
+                Chargement des revues de presse...
+              </div>
             )}
 
-          {isSending && (
-            <div className={styles.messageRowAssistant}>
-              <div className={styles.assistantAvatar} aria-hidden="true">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect width="18" height="14" x="3" y="7" rx="3" />
-                  <path d="M12 2v5" />
-                  <path d="M9 13h.01" />
-                  <path d="M15 13h.01" />
-                </svg>
-              </div>
-              <div className={styles.assistantBubble}>
-                <div className={styles.typingIndicator}>
-                  <span>L'assistant réfléchit</span>
-                  <div className={styles.dotPulse}>
-                    <span className={styles.dot}></span>
-                    <span className={styles.dot}></span>
-                    <span className={styles.dot}></span>
-                  </div>
+            {!isLoadingReviews && pressReviews.length === 0 && (
+              <div className={styles.reviewsEmptyState}>
+                <div className={styles.reviewsEmptyIcon}>
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="16" y1="13" x2="8" y2="13" />
+                    <line x1="16" y1="17" x2="8" y2="17" />
+                    <polyline points="10 9 9 9 8 9" />
+                  </svg>
                 </div>
+                <h3 className={styles.reviewsEmptyTitle}>Aucune revue de presse générée</h3>
+                <p className={styles.reviewsEmptyDesc}>
+                  Échangez avec l'assistant dans une discussion pour explorer un sujet d'actualité, puis cliquez sur le bouton <strong>« Générer une revue de presse »</strong> en haut à droite.
+                </p>
               </div>
-            </div>
-          )}
+            )}
 
-          <div ref={messagesEndRef} />
-        </div>
+            {!isLoadingReviews && pressReviews.length > 0 && (
+              <div className={styles.reviewsList}>
+                {pressReviews.map((item) => (
+                  <article key={item.chat_id} className={styles.reviewCard}>
+                    <div className={styles.reviewCardHeader}>
+                      <div className={styles.reviewCardHeaderLeft}>
+                        <h2 className={styles.reviewCardTitle}>{item.press_review.title}</h2>
+                        <div className={styles.reviewCardDate}>
+                          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <rect width="18" height="18" x="3" y="4" rx="2" ry="2" />
+                            <line x1="16" y1="2" x2="16" y2="6" />
+                            <line x1="8" y1="2" x2="8" y2="6" />
+                            <line x1="3" y1="10" x2="21" y2="10" />
+                          </svg>
+                          <span>{formatLongDate(item.press_review.generated_at)}</span>
+                        </div>
+                      </div>
 
-        {/* Input Bar */}
-        <div className={styles.bottomBar}>
-          <form
-            className={styles.inputForm}
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleSendMessage();
-            }}
-          >
-            <input
-              type="text"
-              className={styles.messageInput}
-              placeholder="Posez une question sur l'actualité..."
-              value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
-              disabled={isSending}
-            />
-            <button
-              type="submit"
-              className={styles.sendBtn}
-              disabled={isSending || !inputMessage.trim()}
-              aria-label="Envoyer"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="22" y1="2" x2="11" y2="13" />
-                <polygon points="22 2 15 22 11 13 2 9 22 2" />
-              </svg>
-            </button>
-          </form>
-        </div>
+                      <button
+                        type="button"
+                        className={`${styles.copyReviewBtn} ${copiedReviewId === item.chat_id ? styles.copyReviewBtnCopied : ""}`}
+                        onClick={() => handleCopyReview(item)}
+                        title="Copier la revue de presse"
+                      >
+                        {copiedReviewId === item.chat_id ? (
+                          <>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="20 6 9 17 4 12" />
+                            </svg>
+                            <span>Copié !</span>
+                          </>
+                        ) : (
+                          <>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <rect width="13" height="13" x="9" y="9" rx="2" ry="2" />
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                            <span>Copier</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    <div className={styles.reviewCardBody}>
+                      <div className={styles.reviewThemeTag}>
+                        Thème : {item.press_review.topic}
+                      </div>
+
+                      <div className={styles.reviewGeneralSummary}>
+                        <div style={{ fontWeight: 700, marginBottom: 6, color: "#111827" }}>Synthèse générale des principales actualités :</div>
+                        {item.press_review.general_summary}
+                      </div>
+
+                      {item.press_review.articles && item.press_review.articles.length > 0 && (
+                        <div className={styles.reviewArticlesSection}>
+                          <div className={styles.reviewArticlesTitle}>Articles et sources analysés :</div>
+                          <ul className={styles.reviewArticlesList}>
+                            {item.press_review.articles.map((art, aIdx) => (
+                              <li key={aIdx} className={styles.reviewArticleItem}>
+                                <span className={styles.reviewArticleTitle}>{art.title}</span>
+                                {art.source && <span className={styles.reviewArticleSource}>({art.source})</span>}
+                                {art.url && (
+                                  <a
+                                    href={art.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className={styles.reviewArticleLink}
+                                  >
+                                    Lien source ↗
+                                  </a>
+                                )}
+                                <div style={{ marginTop: 2 }}>{art.summary}</div>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {item.press_review.perspectives && (
+                        <div className={styles.reviewPerspectives}>
+                          <strong>Perspectives : </strong>
+                          {item.press_review.perspectives}
+                        </div>
+                      )}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </main>
+
+      {/* Modal Générer une revue de presse */}
+      {isModalOpen && (
+        <div className={styles.modalOverlay} onClick={() => !isGeneratingReview && setIsModalOpen(false)}>
+          <div className={styles.modalCard} onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className={styles.modalCloseBtn}
+              onClick={() => !isGeneratingReview && setIsModalOpen(false)}
+            >
+              Fermer
+            </button>
+
+            <h2 className={styles.modalTitle}>Générer une revue de presse</h2>
+            <p className={styles.modalSubtitle}>Donner un titre à votre revue de presse</p>
+
+            <form className={styles.modalForm} onSubmit={handleGeneratePressReview}>
+              <label htmlFor="reviewTopicInput" className={styles.modalLabel}>
+                Thème de la revue de presse
+              </label>
+              <input
+                id="reviewTopicInput"
+                type="text"
+                className={styles.modalInput}
+                value={reviewTopic}
+                onChange={(e) => setReviewTopic(e.target.value)}
+                placeholder="Ex : Actualités politiques - Semaine 39"
+                disabled={isGeneratingReview}
+                autoFocus
+              />
+
+              {modalError && <div className={styles.modalError}>{modalError}</div>}
+
+              <button
+                type="submit"
+                className={styles.modalSubmitBtn}
+                disabled={isGeneratingReview || !reviewTopic.trim()}
+              >
+                {isGeneratingReview ? (
+                  <>
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ animation: "spin 1s linear infinite" }}>
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                    </svg>
+                    <span>Génération en cours...</span>
+                  </>
+                ) : (
+                  <span>Générer</span>
+                )}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

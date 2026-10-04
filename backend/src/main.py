@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
 import uvicorn
 
-from agent import DEFAULT_SYSTEM_PROMPT, run_chat_agent
+from agent import DEFAULT_SYSTEM_PROMPT, generate_press_review, run_chat_agent
 from auth import create_access_token, get_current_user, verify_password
 from database import get_session, init_db
 from models import (
@@ -21,6 +21,9 @@ from models import (
     LoginResponse,
     MessageCreate,
     MessageResponse,
+    PressReviewCreate,
+    PressReviewItem,
+    PressReviewRead,
     User,
     UserRead,
 )
@@ -109,6 +112,7 @@ async def list_chats(
             created_at=chat.created_at,
             updated_at=chat.updated_at,
             message_count=len(chat.messages),
+            press_review=chat.press_review,
         )
         for chat in chats
     ]
@@ -305,6 +309,85 @@ async def send_message(
         timestamp=assistant_msg["timestamp"],
     )
 
+
+@app.post("/chats/{chat_id}/press-review", response_model=ChatRead)
+async def create_chat_press_review(
+    chat_id: int,
+    review_in: PressReviewCreate,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Génère une revue de presse structurée sur le sujet demandé à partir de l'historique du chat."""
+    chat = session.get(Chat, chat_id)
+    if not chat:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Discussion non trouvée",
+        )
+
+    if chat.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Accès interdit : vous n'êtes pas autorisé à modifier cette discussion.",
+        )
+
+    topic = review_in.topic.strip()
+    if not topic:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Le thème de la revue de presse ne peut pas être vide.",
+        )
+
+    if not chat.messages or len(chat.messages) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Impossible de générer une revue de presse à partir d'une discussion vide. Veuillez d'abord échanger avec l'assistant.",
+        )
+
+    # Call specialized press review agent
+    generated_output = await generate_press_review(
+        chat_messages=chat.messages,
+        topic=topic,
+        system_prompt=chat.system_prompt,
+    )
+
+    review_dict = generated_output.model_dump()
+    review_dict["generated_at"] = datetime.now(timezone.utc).isoformat()
+
+    chat.press_review = review_dict
+    chat.updated_at = datetime.now(timezone.utc)
+    session.add(chat)
+    session.commit()
+    session.refresh(chat)
+
+    return chat
+
+
+@app.get("/press-reviews", response_model=list[PressReviewItem])
+async def list_press_reviews(
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Retourne toutes les revues de presse générées par l'utilisateur connecté sur l'ensemble de ses discussions."""
+    statement = (
+        select(Chat)
+        .where(Chat.user_id == current_user.id)
+        .where(Chat.press_review.is_not(None))
+        .order_by(Chat.updated_at.desc())
+    )
+    chats = session.exec(statement).all()
+
+    items: list[PressReviewItem] = []
+    for chat in chats:
+        if chat.press_review:
+            items.append(
+                PressReviewItem(
+                    chat_id=chat.id,
+                    chat_title=chat.title,
+                    press_review=PressReviewRead(**chat.press_review),
+                )
+            )
+    return items
 
 
 if __name__ == "__main__":

@@ -14,6 +14,15 @@ def init_db():
     SQLModel.metadata.create_all(engine)
     print("Database initialized successfully")
 
+    # Ensure column press_review exists in chat table
+    with Session(engine) as session:
+        try:
+            from sqlalchemy import text
+            session.exec(text("ALTER TABLE chat ADD COLUMN IF NOT EXISTS press_review JSON;"))
+            session.commit()
+        except Exception:
+            session.rollback()
+
     # Creating or repairing default user
     default_email = "test@test.com"
     default_password = "test"
