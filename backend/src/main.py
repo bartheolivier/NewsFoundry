@@ -73,7 +73,16 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @app.get("/")
 async def hello():
-    return {"message": "👋", "service": "NewsFoundry API"}
+    return {
+        "message": "👋",
+        "service": "NewsFoundry API",
+        "gemini_configured": bool(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")),
+        "world_news_configured": bool(
+            os.getenv("WORLD_NEWS_API_KEY")
+            or os.getenv("WORLDNEWS_API_KEY")
+            or os.getenv("NEWS_API_KEY")
+        ),
+    }
 
 
 @app.post("/login", response_model=LoginResponse)

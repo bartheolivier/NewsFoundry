@@ -10,6 +10,16 @@ _top_news_cache: dict[str, Any] = {"timestamp": 0, "data": []}
 CACHE_TTL_SECONDS = 3600  # 1 hour cache
 
 
+def get_world_news_api_key(api_key: Optional[str] = None) -> Optional[str]:
+    """Extrait la clé WorldNewsAPI depuis les arguments ou variables d'environnement."""
+    return (
+        api_key
+        or os.getenv("WORLD_NEWS_API_KEY")
+        or os.getenv("WORLDNEWS_API_KEY")
+        or os.getenv("NEWS_API_KEY")
+    )
+
+
 async def get_top_news_api(
     country: str = "fr",
     language: str = "fr",
@@ -25,7 +35,7 @@ async def get_top_news_api(
     if _top_news_cache["data"] and (now - _top_news_cache["timestamp"] < CACHE_TTL_SECONDS):
         return _top_news_cache["data"]
 
-    key = api_key or os.getenv("WORLD_NEWS_API_KEY")
+    key = get_world_news_api_key(api_key)
     if not key:
         return []
 
@@ -76,7 +86,7 @@ async def search_news_api(
 
     Gère les filtres avancés (pays, dates) et les erreurs HTTP (401, 402, 429, timeouts).
     """
-    key = api_key or os.getenv("WORLD_NEWS_API_KEY")
+    key = get_world_news_api_key(api_key)
     if not key:
         return {
             "error": "Clé WORLD_NEWS_API_KEY non configurée. Impossible de contacter l'API d'actualités.",
@@ -175,7 +185,7 @@ async def extract_article_content_api(
     api_key: Optional[str] = None,
 ) -> dict[str, Any]:
     """Appelle la route /extract-news de WorldNewsAPI pour extraire le contenu intégral d'un article."""
-    key = api_key or os.getenv("WORLD_NEWS_API_KEY")
+    key = get_world_news_api_key(api_key)
     if not key:
         return {
             "error": "Clé WORLD_NEWS_API_KEY non configurée.",
