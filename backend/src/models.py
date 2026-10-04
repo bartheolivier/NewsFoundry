@@ -33,6 +33,11 @@ class Chat(SQLModel, table=True):
         default=None,
         sa_column=Column(JSON, nullable=True),
     )
+    # URLs of articles whose full content was loaded during investigations
+    loaded_articles: List[str] = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False),
+    )
 
 
 
@@ -69,6 +74,7 @@ class ChatSummary(BaseModel):
     updated_at: datetime
     message_count: int
     press_review: Optional[dict[str, Any]] = None
+    loaded_articles: List[str] = []
 
 
 class ChatRead(BaseModel):
@@ -80,6 +86,7 @@ class ChatRead(BaseModel):
     messages: List[dict[str, Any]]
     system_prompt: Optional[str] = None
     press_review: Optional[dict[str, Any]] = None
+    loaded_articles: List[str] = []
 
 
 class ArticleSummary(BaseModel):

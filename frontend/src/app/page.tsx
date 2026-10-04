@@ -36,6 +36,7 @@ interface ChatSummary {
   updated_at: string;
   message_count: number;
   press_review?: PressReviewData | null;
+  loaded_articles?: string[];
 }
 
 interface Message {
@@ -52,6 +53,7 @@ interface ChatDetail {
   updated_at: string;
   messages: Message[];
   press_review?: PressReviewData | null;
+  loaded_articles?: string[];
 }
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -986,6 +988,30 @@ ${review.press_review.perspectives ? `**Perspectives :**\n${review.press_review.
                 disabled={isGeneratingReview}
                 autoFocus
               />
+
+              {activeChat?.loaded_articles && activeChat.loaded_articles.length > 0 && (
+                <div style={{
+                  padding: "8px 12px",
+                  borderRadius: 6,
+                  backgroundColor: "#eff6ff",
+                  border: "1px solid #bfdbfe",
+                  color: "#1e40af",
+                  fontSize: 12,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  marginTop: -6,
+                  marginBottom: 10,
+                }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="m9 12 2 2 4-4" />
+                  </svg>
+                  <span>
+                    <strong>Enrichissement RAG actif :</strong> {activeChat.loaded_articles.length} article(s) indexé(s) pour la recherche sémantique.
+                  </span>
+                </div>
+              )}
 
               {modalError && <div className={styles.modalError}>{modalError}</div>}
 

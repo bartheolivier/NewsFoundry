@@ -8,9 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select
 import uvicorn
 
-from agent import DEFAULT_SYSTEM_PROMPT, generate_press_review, run_chat_agent
+from agent import DEFAULT_SYSTEM_PROMPT, ChatDeps, generate_press_review, run_chat_agent
 from auth import create_access_token, get_current_user, verify_password
 from database import get_session, init_db
+from services.rag import build_rag_context
 from models import (
     Chat,
     ChatCreate,
@@ -113,6 +114,7 @@ async def list_chats(
             updated_at=chat.updated_at,
             message_count=len(chat.messages),
             press_review=chat.press_review,
+            loaded_articles=chat.loaded_articles or [],
         )
         for chat in chats
     ]
@@ -150,6 +152,7 @@ async def create_chat(
         updated_at=now,
         messages=[],
         system_prompt=chat_prompt,
+        loaded_articles=[],
     )
     session.add(chat)
     session.commit()
@@ -282,12 +285,19 @@ async def send_message(
     }
 
     # 2. Run PydanticAI agent with history and saved discussion prompt
-    assistant_text = await run_chat_agent(
+    chat_deps = ChatDeps()
+    agent_output = await run_chat_agent(
         chat.messages,
         message_in.content,
         system_prompt_override=chat.system_prompt,
+        deps=chat_deps,
     )
 
+    if isinstance(agent_output, tuple):
+        assistant_text, new_urls = agent_output
+    else:
+        assistant_text = agent_output
+        new_urls = chat_deps.loaded_articles
 
     # 3. Record assistant response
     assistant_msg = {
@@ -296,7 +306,15 @@ async def send_message(
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
-    # 4. Persist updated messages and timestamp in database
+    # 4. Update loaded articles if new articles were fetched during the conversation
+    if new_urls:
+        existing_urls = list(chat.loaded_articles or [])
+        for u in new_urls:
+            if u not in existing_urls:
+                existing_urls.append(u)
+        chat.loaded_articles = existing_urls
+
+    # 5. Persist updated messages and timestamp in database
     chat.messages = list(chat.messages) + [user_msg, assistant_msg]
     chat.updated_at = datetime.now(timezone.utc)
     session.add(chat)
@@ -344,11 +362,24 @@ async def create_chat_press_review(
             detail="Impossible de générer une revue de presse à partir d'une discussion vide. Veuillez d'abord échanger avec l'assistant.",
         )
 
-    # Call specialized press review agent
+    # 1. Étape 8 : Récupération du contexte RAG à partir des articles explorés
+    rag_context = None
+    if chat.loaded_articles:
+        try:
+            rag_context = await build_rag_context(
+                loaded_urls=chat.loaded_articles,
+                topic=topic,
+            )
+        except Exception as exc:
+            # Fallback gracieux si l'indexation RAG échoue
+            print(f"Warning: RAG retrieval failed: {exc}")
+
+    # 2. Appel de l'agent spécialisé de revue de presse avec le contexte RAG enrichi
     generated_output = await generate_press_review(
         chat_messages=chat.messages,
         topic=topic,
         system_prompt=chat.system_prompt,
+        rag_context=rag_context,
     )
 
     review_dict = generated_output.model_dump()

@@ -1,6 +1,7 @@
 import os
+from dataclasses import dataclass, field
 from typing import Any, List, Optional
-from pydantic_ai import Agent
+from pydantic_ai import Agent, RunContext
 from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, TextPart, UserPromptPart
 from pydantic_ai.models.test import TestModel
 
@@ -25,6 +26,12 @@ Règles impératives :
 """
 
 
+@dataclass
+class ChatDeps:
+    """Dépendances injectées dans les exécutions de l'agent de chat pour suivre l'état de la session."""
+    loaded_articles: List[str] = field(default_factory=list)
+
+
 async def search_news(
     query: str,
     language: str = "fr",
@@ -44,7 +51,10 @@ async def search_news(
     return format_news_for_agent(res)
 
 
-async def get_article_content(url: str) -> str:
+async def get_article_content(
+    ctx: RunContext[Optional[ChatDeps]],
+    url: str,
+) -> str:
     """Extrait et lit le texte intégral d'un article d'actualité à partir de son URL via WorldNewsAPI.
 
     À utiliser lorsque l'utilisateur demande des détails supplémentaires, des citations directes,
@@ -53,6 +63,9 @@ async def get_article_content(url: str) -> str:
     Args:
         url: L'URL exacte de l'article de presse à lire et analyser.
     """
+    if ctx.deps is not None:
+        if url not in ctx.deps.loaded_articles:
+            ctx.deps.loaded_articles.append(url)
     res = await extract_article_content_api(url=url)
     return format_article_content_for_agent(res)
 
@@ -66,7 +79,7 @@ def get_agent(
     prompt = system_prompt_override or DEFAULT_SYSTEM_PROMPT
 
     if custom_model is not None:
-        return Agent(custom_model, system_prompt=prompt, tools=tools)
+        return Agent(custom_model, system_prompt=prompt, tools=tools, deps_type=Optional[ChatDeps])
 
     gemini_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
     openai_key = os.getenv("OPENAI_API_KEY")
@@ -77,12 +90,13 @@ def get_agent(
         from pydantic_ai.providers.google import GoogleProvider
         provider = GoogleProvider(api_key=gemini_key)
         model = GoogleModel(model_name, provider=provider)
-        return Agent(model, system_prompt=prompt, tools=tools)
+        return Agent(model, system_prompt=prompt, tools=tools, deps_type=Optional[ChatDeps])
     elif openai_key:
         return Agent(
             f"openai:{os.getenv('LLM_MODEL', 'gpt-4o-mini')}",
             system_prompt=prompt,
             tools=tools,
+            deps_type=Optional[ChatDeps],
         )
     else:
         # Fallback to TestModel when no API key is configured yet
@@ -92,6 +106,7 @@ def get_agent(
             ),
             system_prompt=prompt,
             tools=tools,
+            deps_type=Optional[ChatDeps],
         )
 
 
@@ -113,12 +128,17 @@ async def run_chat_agent(
     user_prompt: str,
     agent_override: Optional[Agent] = None,
     system_prompt_override: Optional[str] = None,
-) -> str:
-    """Executes the agent run given prior conversation history and current user prompt."""
+    deps: Optional[ChatDeps] = None,
+) -> tuple[str, List[str]]:
+    """Executes the agent run given prior conversation history and current user prompt.
+
+    Returns a tuple (assistant_text, newly_loaded_urls).
+    """
     agent = agent_override or get_agent(system_prompt_override=system_prompt_override)
     message_history = build_model_messages(history)
-    result = await agent.run(user_prompt, message_history=message_history)
-    return str(result.output)
+    actual_deps = deps if deps is not None else ChatDeps()
+    result = await agent.run(user_prompt, message_history=message_history, deps=actual_deps)
+    return str(result.output), actual_deps.loaded_articles
 
 
 # ---------------------------------------------------------
@@ -195,8 +215,9 @@ async def generate_press_review(
     topic: str,
     system_prompt: Optional[str] = None,
     agent_override: Optional[Agent] = None,
+    rag_context: Optional[str] = None,
 ):
-    """Génère une revue de presse structurée sur le sujet donné à partir de l'historique de discussion."""
+    """Génère une revue de presse structurée sur le sujet donné à partir de l'historique de discussion et du contexte RAG."""
     agent = agent_override or get_press_review_agent()
 
     history_lines: List[str] = []
@@ -211,14 +232,18 @@ async def generate_press_review(
 
     conversation_context = "\n".join(history_lines)
 
+    rag_section = ""
+    if rag_context:
+        rag_section = f"\n{rag_context}\n"
+
     user_prompt = f"""Voici l'ensemble de la discussion de travail et des recherches effectuées avec le journaliste :
 
 {conversation_context}
-
+{rag_section}
 -------------------------
 SUJET CIBLÉ DE LA REVUE DE PRESSE : {topic}
 -------------------------
-En te basant rigoureusement sur les faits, articles et données partagés dans cette discussion, produis la revue de presse structurée demandée sur le sujet '{topic}'.
+En te basant rigoureusement sur les faits, articles et données partagés dans cette discussion (ainsi que les extraits documentaires fournis ci-dessus), produis la revue de presse structurée demandée sur le sujet '{topic}'.
 """
 
     result = await agent.run(user_prompt)

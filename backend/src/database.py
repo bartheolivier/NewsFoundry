@@ -14,11 +14,12 @@ def init_db():
     SQLModel.metadata.create_all(engine)
     print("Database initialized successfully")
 
-    # Ensure column press_review exists in chat table
+    # Ensure columns press_review and loaded_articles exist in chat table
     with Session(engine) as session:
         try:
             from sqlalchemy import text
             session.exec(text("ALTER TABLE chat ADD COLUMN IF NOT EXISTS press_review JSON;"))
+            session.exec(text("ALTER TABLE chat ADD COLUMN IF NOT EXISTS loaded_articles JSON DEFAULT '[]'::json;"))
             session.commit()
         except Exception:
             session.rollback()

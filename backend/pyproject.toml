@@ -14,5 +14,8 @@ dependencies = [
     "pytest>=8.0.0",
     "httpx>=0.27.0",
     "pydantic-ai>=2.27.1",
+    "llama-index-core>=0.14.25",
+    "llama-index-embeddings-gemini>=0.4.2",
+    "llama-index-embeddings-google-genai>=0.6.0",
 ]
 
