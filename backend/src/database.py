@@ -15,14 +15,34 @@ def init_db():
     print("Database initialized successfully")
 
     # Ensure columns press_review and loaded_articles exist in chat table
-    with Session(engine) as session:
+    with engine.begin() as conn:
+        from sqlalchemy import inspect, text
+        inspector = inspect(conn)
+        existing_columns = [col["name"] for col in inspector.get_columns("chat")] if inspector.has_table("chat") else []
+
+        if "press_review" not in existing_columns:
+            try:
+                conn.execute(text("ALTER TABLE chat ADD COLUMN press_review JSON;"))
+            except Exception as e:
+                print(f"Migration note (press_review): {e}")
+
+        if "loaded_articles" not in existing_columns:
+            try:
+                if engine.dialect.name == "postgresql":
+                    conn.execute(text("ALTER TABLE chat ADD COLUMN loaded_articles JSON DEFAULT '[]'::json;"))
+                else:
+                    conn.execute(text("ALTER TABLE chat ADD COLUMN loaded_articles JSON DEFAULT '[]';"))
+            except Exception as e:
+                print(f"Migration note (loaded_articles): {e}")
+
+        # Ensure no existing rows have NULL for loaded_articles
         try:
-            from sqlalchemy import text
-            session.exec(text("ALTER TABLE chat ADD COLUMN IF NOT EXISTS press_review JSON;"))
-            session.exec(text("ALTER TABLE chat ADD COLUMN IF NOT EXISTS loaded_articles JSON DEFAULT '[]'::json;"))
-            session.commit()
-        except Exception:
-            session.rollback()
+            if engine.dialect.name == "postgresql":
+                conn.execute(text("UPDATE chat SET loaded_articles = '[]'::json WHERE loaded_articles IS NULL;"))
+            else:
+                conn.execute(text("UPDATE chat SET loaded_articles = '[]' WHERE loaded_articles IS NULL;"))
+        except Exception as e:
+            print(f"Migration note (loaded_articles update): {e}")
 
     # Creating or repairing default user
     default_email = "test@test.com"

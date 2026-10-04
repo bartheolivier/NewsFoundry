@@ -179,9 +179,14 @@ export default function HomePage() {
         setActiveChat(newChat);
         await loadChats();
         return newChat.id;
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setErrorMessage(
+          errData.detail || "Erreur lors de la création d'une nouvelle discussion."
+        );
       }
     } catch {
-      setErrorMessage("Erreur lors de la création d'une nouvelle discussion.");
+      setErrorMessage("Erreur de connexion au serveur lors de la création d'une nouvelle discussion.");
     }
     return null;
   };

@@ -3,10 +3,14 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException, status
+import logging
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlmodel import Session, select
 import uvicorn
+
+logger = logging.getLogger("uvicorn.error")
 
 from agent import DEFAULT_SYSTEM_PROMPT, ChatDeps, generate_press_review, run_chat_agent
 from auth import create_access_token, get_current_user, verify_password
@@ -56,6 +60,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception on {request.method} {request.url}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Erreur interne du serveur: {str(exc)}"},
+    )
 
 
 @app.get("/")
@@ -157,6 +170,8 @@ async def create_chat(
     session.add(chat)
     session.commit()
     session.refresh(chat)
+    if chat.loaded_articles is None:
+        chat.loaded_articles = []
     return chat
 
 
@@ -182,6 +197,8 @@ async def get_chat(
             detail="Accès interdit : vous n'êtes pas autorisé à consulter cette discussion.",
         )
 
+    if chat.loaded_articles is None:
+        chat.loaded_articles = []
     return chat
 
 
@@ -243,6 +260,8 @@ async def update_chat(
     session.add(chat)
     session.commit()
     session.refresh(chat)
+    if chat.loaded_articles is None:
+        chat.loaded_articles = []
     return chat
 
 
@@ -390,8 +409,8 @@ async def create_chat_press_review(
     chat.updated_at = datetime.now(timezone.utc)
     session.add(chat)
     session.commit()
-    session.refresh(chat)
-
+    if chat.loaded_articles is None:
+        chat.loaded_articles = []
     return chat
 
 
