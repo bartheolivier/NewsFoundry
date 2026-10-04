@@ -176,8 +176,11 @@ from services.world_news import (
 )
 
 
+import services.world_news
+
 @pytest.mark.anyio
 async def test_get_top_news_api_success():
+    services.world_news._top_news_cache = {"timestamp": 0, "data": []}
     mock_data = {
         "top_news": [
             {

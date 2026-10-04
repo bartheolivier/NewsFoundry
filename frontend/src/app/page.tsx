@@ -43,6 +43,8 @@ export default function HomePage() {
   const [isSending, setIsSending] = useState(false);
   const [isLoadingChat, setIsLoadingChat] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [editedTitle, setEditedTitle] = useState("");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -82,6 +84,7 @@ export default function HomePage() {
   };
 
   const handleSelectChat = async (chatId: number) => {
+    setIsEditingTitle(false);
     setIsLoadingChat(true);
     setErrorMessage(null);
     try {
@@ -104,6 +107,7 @@ export default function HomePage() {
   };
 
   const handleCreateNewChat = async (initialTitle?: string) => {
+    setIsEditingTitle(false);
     try {
       const res = await fetch(`${API_BASE_URL}/chats`, {
         method: "POST",
@@ -127,6 +131,7 @@ export default function HomePage() {
 
   const handleDeleteChat = async (chatId: number, e: React.MouseEvent) => {
     e.stopPropagation();
+    setIsEditingTitle(false);
     if (!window.confirm("Êtes-vous sûr de vouloir supprimer cette discussion ?")) {
       return;
     }
@@ -149,6 +154,57 @@ export default function HomePage() {
       }
     } catch {
       setErrorMessage("Erreur de connexion au serveur.");
+    }
+  };
+
+  const handleStartEditingTitle = () => {
+    if (!activeChat) return;
+    setEditedTitle(activeChat.title);
+    setIsEditingTitle(true);
+  };
+
+  const handleSaveTitle = async () => {
+    if (!activeChat) return;
+    const trimmed = editedTitle.trim();
+    if (!trimmed) {
+      setErrorMessage("Le titre de la discussion ne peut pas être vide.");
+      return;
+    }
+    if (trimmed === activeChat.title) {
+      setIsEditingTitle(false);
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/chats/${activeChat.id}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ title: trimmed }),
+      });
+
+      if (res.ok) {
+        const updatedChat = await res.json();
+        setActiveChat((prev) => (prev ? { ...prev, title: updatedChat.title } : null));
+        setChats((prev) =>
+          prev.map((c) => (c.id === updatedChat.id ? { ...c, title: updatedChat.title } : c))
+        );
+        setIsEditingTitle(false);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setErrorMessage(err.detail || "Erreur lors du renommage de la discussion.");
+      }
+    } catch {
+      setErrorMessage("Impossible de contacter le serveur pour renommer la discussion.");
+    }
+  };
+
+  const handleCancelEditingTitle = () => {
+    setIsEditingTitle(false);
+    if (activeChat) {
+      setEditedTitle(activeChat.title);
     }
   };
 
@@ -357,8 +413,67 @@ export default function HomePage() {
           <div className={styles.topBarLeft}>
             {activeChat && (
               <div className={styles.chatTitleContainer}>
-                <h2 className={styles.chatTitle}>{activeChat.title}</h2>
-                <span className={styles.chatSubtitle}>Conversation active</span>
+                {isEditingTitle ? (
+                  <form
+                    className={styles.editTitleForm}
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleSaveTitle();
+                    }}
+                  >
+                    <input
+                      type="text"
+                      className={styles.editTitleInput}
+                      value={editedTitle}
+                      onChange={(e) => setEditedTitle(e.target.value)}
+                      autoFocus
+                      maxLength={80}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") handleCancelEditingTitle();
+                      }}
+                    />
+                    <button
+                      type="submit"
+                      className={styles.saveTitleBtn}
+                      title="Enregistrer le titre"
+                      aria-label="Enregistrer le titre"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.cancelTitleBtn}
+                      onClick={handleCancelEditingTitle}
+                      title="Annuler"
+                      aria-label="Annuler"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <line x1="18" y1="6" x2="6" y2="18" />
+                        <line x1="6" y1="6" x2="18" y2="18" />
+                      </svg>
+                    </button>
+                  </form>
+                ) : (
+                  <div className={styles.chatTitleRow}>
+                    <h2 className={styles.chatTitle}>{activeChat.title}</h2>
+                    <button
+                      type="button"
+                      className={styles.editTitleBtn}
+                      onClick={handleStartEditingTitle}
+                      title="Renommer la discussion"
+                      aria-label="Renommer la discussion"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+                <span className={styles.chatSubtitle}>
+                  {isEditingTitle ? "Appuyez sur Entrée pour valider, Échap pour annuler" : "Conversation active"}
+                </span>
               </div>
             )}
             {!activeChat && (

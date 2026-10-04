@@ -52,6 +52,11 @@ class ChatCreate(BaseModel):
     title: Optional[str] = None
 
 
+class ChatUpdate(BaseModel):
+    title: str
+
+
+
 class ChatSummary(BaseModel):
     id: int
     user_id: int

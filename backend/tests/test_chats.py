@@ -193,3 +193,66 @@ def test_user_isolation_cannot_delete_other_users_chat(client: TestClient, sessi
     # 4. Verify User 1 can still access their chat
     get_res = client.get(f"/chats/{chat1_id}", headers={"Authorization": f"Bearer {token_user1}"})
     assert get_res.status_code == 200
+
+
+def test_update_chat_title_success(client: TestClient):
+    token = get_token_for_user(client)
+    create_res = client.post(
+        "/chats",
+        json={"title": "Ancien titre"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    chat_id = create_res.json()["id"]
+
+    patch_res = client.patch(
+        f"/chats/{chat_id}",
+        json={"title": "Nouveau titre personnalisé"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert patch_res.status_code == 200
+    assert patch_res.json()["title"] == "Nouveau titre personnalisé"
+
+    # Verify persisted
+    get_res = client.get(f"/chats/{chat_id}", headers={"Authorization": f"Bearer {token}"})
+    assert get_res.status_code == 200
+    assert get_res.json()["title"] == "Nouveau titre personnalisé"
+
+
+def test_update_chat_empty_title(client: TestClient):
+    token = get_token_for_user(client)
+    create_res = client.post(
+        "/chats",
+        json={"title": "Titre initial"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    chat_id = create_res.json()["id"]
+
+    patch_res = client.patch(
+        f"/chats/{chat_id}",
+        json={"title": "   "},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert patch_res.status_code == 400
+    assert "ne peut pas être vide" in patch_res.json()["detail"]
+
+
+def test_user_isolation_cannot_update_other_users_chat(client: TestClient, session: Session):
+    token_user1 = get_token_for_user(client, "test@test.com", "test")
+    create_res = client.post(
+        "/chats",
+        json={"title": "Discussion privée de User 1"},
+        headers={"Authorization": f"Bearer {token_user1}"},
+    )
+    chat1_id = create_res.json()["id"]
+
+    create_second_user(session)
+    token_user2 = get_token_for_user(client, "second@test.com", "test2")
+
+    patch_res = client.patch(
+        f"/chats/{chat1_id}",
+        json={"title": "Titre piraté"},
+        headers={"Authorization": f"Bearer {token_user2}"},
+    )
+    assert patch_res.status_code == 403
+    assert "Accès interdit" in patch_res.json()["detail"]
+

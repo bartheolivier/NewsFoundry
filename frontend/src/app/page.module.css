@@ -217,10 +217,89 @@
   flex-direction: column;
 }
 
+.chatTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .chatTitle {
   font-size: 15px;
   font-weight: 700;
   color: #111827;
+}
+
+.editTitleBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  color: #9ca3af;
+  background: transparent;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.editTitleBtn:hover {
+  background-color: #f3f4f6;
+  color: #7451eb;
+}
+
+.editTitleForm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.editTitleInput {
+  font-size: 14px;
+  font-weight: 600;
+  color: #111827;
+  padding: 4px 8px;
+  border: 1.5px solid #7451eb;
+  border-radius: 6px;
+  outline: none;
+  background-color: #ffffff;
+  min-width: 220px;
+  max-width: 400px;
+}
+
+.saveTitleBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background-color: #7451eb;
+  color: #ffffff;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.saveTitleBtn:hover {
+  background-color: #6038df;
+}
+
+.cancelTitleBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background-color: #f3f4f6;
+  color: #6b7280;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.cancelTitleBtn:hover {
+  background-color: #e5e7eb;
+  color: #374151;
 }
 
 .chatSubtitle {

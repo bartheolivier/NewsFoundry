@@ -16,6 +16,7 @@ from models import (
     ChatCreate,
     ChatRead,
     ChatSummary,
+    ChatUpdate,
     LoginRequest,
     LoginResponse,
     MessageCreate,
@@ -23,6 +24,7 @@ from models import (
     User,
     UserRead,
 )
+
 from services.world_news import get_top_news_api
 
 
@@ -201,6 +203,41 @@ async def delete_chat(
     return {"message": "Discussion supprimée avec succès", "id": chat_id}
 
 
+@app.patch("/chats/{chat_id}", response_model=ChatRead)
+async def update_chat(
+    chat_id: int,
+    chat_update: ChatUpdate,
+    current_user: User = Depends(get_current_user),
+    session: Session = Depends(get_session),
+):
+    """Updates the title of a chat session belonging strictly to the authenticated user."""
+    chat = session.get(Chat, chat_id)
+    if not chat:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Discussion non trouvée",
+        )
+
+    if chat.user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Accès interdit : vous n'êtes pas autorisé à modifier cette discussion.",
+        )
+
+    new_title = chat_update.title.strip()
+    if not new_title:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Le titre de la discussion ne peut pas être vide.",
+        )
+
+    chat.title = new_title
+    chat.updated_at = datetime.now(timezone.utc)
+    session.add(chat)
+    session.commit()
+    session.refresh(chat)
+    return chat
+
 
 @app.post("/chats/{chat_id}/messages", response_model=MessageResponse)
 async def send_message(
@@ -224,8 +261,14 @@ async def send_message(
             detail="Accès interdit : vous n'êtes pas autorisé à modifier cette discussion.",
         )
 
+    # Auto-update title if it was generic and this is the first message
+    if len(chat.messages) == 0 and chat.title.startswith("Discussion du "):
+        auto_title = message_in.content.strip()
+        chat.title = auto_title[:35] + ("..." if len(auto_title) > 35 else "")
+
     now = datetime.now(timezone.utc)
     now_iso = now.isoformat()
+
 
     # 1. Record user message
     user_msg = {
