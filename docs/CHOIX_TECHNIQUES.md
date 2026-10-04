@@ -90,3 +90,77 @@ Plutôt que d'introduire une base de données vectorielle externe complexe et pa
 
 - **Backend sur Railway :** Déploiement automatisé par conteneur Docker avec base PostgreSQL 17 managée.
 - **Frontend sur Vercel :** Intégration native avec Next.js pour des performances de distribution CDN mondiales et temps de réponse minimaux.
+
+---
+
+## 8. Les Raisons des Choix de Prompts (*Prompt Engineering*)
+
+La conception des prompts système a été pensée pour répondre rigoureusement aux impératifs d'un produit SaaS dédié aux journalistes professionnels : **objectivité, vérifiabilité des faits, contextualisation immédiate et délimitation stricte des rôles**.
+
+### A. Prompt Système de l'Agent de Chat Journaliste (`DEFAULT_SYSTEM_PROMPT`)
+
+```text
+Tu es l'assistant IA de NewsFoundry, une plateforme SaaS dédiée aux journalistes, pigistes et professionnels des médias.
+Ton rôle est d'aider les journalistes à explorer l'actualité, synthétiser des événements récents, répondre à leurs questions d'investigation et préparer des revues de presse.
+
+Règles impératives :
+1. Recherche d'actualités en direct : Tu as accès à l'outil `search_news`. Utilise-le SYSTÉMATIQUEMENT dès que la question de l'utilisateur porte sur des événements récents, des actualités du jour...
+2. Lecture approfondie d'articles : Tu as accès à l'outil `get_article_content`. Utilise-le dès que l'utilisateur demande des précisions...
+3. Démarche journalistique : Adopte un ton journalistique, professionnel, objectif, clair et structuré.
+4. Formattage Markdown : Structure tes réponses avec soin en utilisant du Markdown...
+5. CITATION DES SOURCES : Lorsque tu utilises des informations issues de tes outils, mentionne systématiquement la source/le média et inclus les liens markdown vers les articles originaux (ex: [Titre de l'article](url)).
+6. Transparence : Si aucun article n'est trouvé ou si une erreur survient... informe clairement l'utilisateur...
+```
+
+**Justifications des choix :**
+1. **Règle de citation systématique (Règle 5) :** Dans le journalisme, une information sans source vérifiable est inutilisable. Le prompt force le modèle à mentionner la source et à formater les liens markdown `[Titre](URL)` pour que le journaliste puisse remonter à la source originale en un clic.
+2. **Déclenchement systématique des outils (Règles 1 et 2) :** Les LLMs ont tendance à s'appuyer sur leur mémoire statique datée. Les consignes explicites imposent d'invoquer `search_news` pour l'actualité chaude et `get_article_content` pour les analyses en profondeur.
+3. **Ton et posture déontologique (Règle 3) :** Imposer un ton neutre, factuel et structuré évite les tournures flatteuses ou les jugements de valeur inappropriés pour une rédaction.
+4. **Contextualisation dynamique initiale (`/top-news`) :** Lors de la création d'une nouvelle discussion, l'API interroge les manchettes phares du jour via WorldNewsAPI et les injecte dans le `system_prompt` de la session. Cela permet à l'assistant d'être immédiatement au fait de l'actualité du jour dès le premier message, sans attendre une question explicite.
+
+---
+
+### B. Prompt Système de l'Agent de Revue de Presse (`PRESS_REVIEW_SYSTEM_PROMPT`)
+
+```text
+Tu es le rédacteur en chef expert de NewsFoundry, spécialisé dans la rédaction de revues de presse journalistiques de référence.
+Ton rôle est d'analyser l'intégralité des recherches, dépêches, articles et échanges issus d'une discussion journalistique pour composer une revue de presse structurée, claire, neutre et percutante sur le thème demandé.
+
+Règles impératives de rédaction :
+1. Titre : Propose un grand titre en majuscules (ex: 'REVUE DE PRESSE : TRANSITION ÉNERGÉTIQUE ET MOBILITÉ ÉLECTRIQUE').
+2. Thème : Rappelle le sujet ciblé.
+3. Synthèse générale : Développe une synthèse d'ensemble soignée (2 à 4 paragraphes) articulant les faits essentiels, chiffres marquants et tendances de fond.
+4. Synthèse des articles : Identifie tous les articles clés et sources cités dans la discussion se rapportant au thème...
+5. Perspectives : Conclus avec les enjeux d'avenir, les prochaines échéances ou les questions en suspens.
+6. Structured Output : Respecte rigoureusement le schéma JSON imposé.
+```
+
+**Justifications des choix :**
+1. **Rôle de Rédacteur en Chef :** Contrairement au rôle d'enquêteur interactif du chat, ce prompt positionne le modèle comme un décideur de rédaction qui priorise, hiérarchise et synthétise les faits denses.
+2. **Harmonisation avec le schéma Pydantic (`PressReviewOutput`) :** Les règles 1 à 5 correspondent exactement aux champs du modèle de données, ce qui guide le modèle dans la génération de chaque bloc du schéma JSON sans hallucination de format.
+3. **Perspectives d'avenir :** Une revue de presse journalistique professionnelle ne se contente pas de relater le passé ; elle doit éclairer les prochaines étapes, les échéances légales ou les débats à venir.
+
+---
+
+## 9. Répertoire Exhaustif des Erreurs Retournées par l'API Backend
+
+Pour garantir une intégration robuste et informer l'utilisateur de manière précise, l'API FastAPI utilise des codes de statut HTTP standardisés avec des messages d'erreur explicites au format JSON `{ "detail": "..." }`.
+
+| Endpoint | Code HTTP | Raison / Scénario de déclenchement | Exemple de payload retourné |
+| :--- | :---: | :--- | :--- |
+| `POST /login` | **401 Unauthorized** | Email inconnu ou mot de passe invalide | `{"detail": "Email ou mot de passe incorrect."}` |
+| `GET /me` | **401 Unauthorized** | Token JWT manquant, invalide ou expiré | `{"detail": "Token d'authentification invalide ou expiré."}` |
+| `GET /chats/{id}` | **404 Not Found** | La discussion demandée n'existe pas en BDD | `{"detail": "Discussion non trouvée"}` |
+| `GET /chats/{id}` | **403 Forbidden** | La discussion appartient à un autre utilisateur | `{"detail": "Accès interdit : vous n'êtes pas autorisé à consulter cette discussion."}` |
+| `PATCH /chats/{id}` | **400 Bad Request** | Le nouveau titre fourni est vide ou constitué uniquement d'espaces | `{"detail": "Le titre de la discussion ne peut pas être vide."}` |
+| `PATCH /chats/{id}` | **403 Forbidden** | Tentative de renommage d'une discussion d'un autre utilisateur | `{"detail": "Accès interdit : vous n'êtes pas autorisé à modifier cette discussion."}` |
+| `DELETE /chats/{id}` | **403 Forbidden** | Tentative de suppression d'une discussion appartenant à un confrère | `{"detail": "Accès interdit : vous n'êtes pas autorisé à supprimer cette discussion."}` |
+| `DELETE /chats/{id}` | **404 Not Found** | Discussion à supprimer introuvable | `{"detail": "Discussion non trouvée"}` |
+| `POST /chats/{id}/messages` | **400 Bad Request** | Message vide ou payload JSON malformé | `{"detail": "Le contenu du message ne peut pas être vide."}` |
+| `POST /chats/{id}/messages` | **403 Forbidden** | Envoi d'un message sur la discussion d'un autre utilisateur | `{"detail": "Accès interdit : vous n'êtes pas autorisé à modifier cette discussion."}` |
+| `POST /chats/{id}/press-review`| **400 Bad Request** | Le thème de revue de presse fourni est vide | `{"detail": "Le thème de la revue de presse ne peut pas être vide."}` |
+| `POST /chats/{id}/press-review`| **400 Bad Request** | Tentative de génération sur une discussion vide (sans messages) | `{"detail": "Impossible de générer une revue de presse à partir d'une discussion vide..."}` |
+| `POST /chats/{id}/press-review`| **403 Forbidden** | Génération demandée sur une discussion non possédée | `{"detail": "Accès interdit : vous n'êtes pas autorisé à modifier cette discussion."}` |
+| `DELETE /chats/{id}/press-review`| **404 Not Found** | Aucune revue de presse n'existe sur cette discussion | `{"detail": "Aucune revue de presse n'est associée à cette discussion."}` |
+| `DELETE /chats/{id}/press-review`| **403 Forbidden** | Tentative de suppression de la revue de presse d'un confrère | `{"detail": "Accès interdit : vous n'êtes pas autorisé à modifier cette discussion."}` |
+
