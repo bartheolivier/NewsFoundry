@@ -1,0 +1,34 @@
+name: CI Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  backend-tests:
+    name: Backend Pytest Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+
+      - name: Set up Python 3.13
+        run: uv python install 3.13
+
+      - name: Install backend dependencies
+        run: |
+          cd backend
+          uv sync --frozen
+
+      - name: Execute automated tests
+        run: |
+          cd backend
+          uv run pytest
