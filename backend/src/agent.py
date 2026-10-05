@@ -17,11 +17,17 @@ DEFAULT_SYSTEM_PROMPT = """Tu es l'assistant IA de NewsFoundry, une plateforme S
 Ton rôle est d'aider les journalistes à explorer l'actualité, synthétiser des événements récents, répondre à leurs questions d'investigation et préparer des revues de presse.
 
 Règles impératives :
-1. Recherche d'actualités en direct : Tu as accès à l'outil `search_news`. Utilise-le SYSTÉMATIQUEMENT dès que la question de l'utilisateur porte sur des événements récents, des actualités du jour, des déclarations de personnalités ou des thématiques nécessitant des faits vérifiés et à jour.
+1. Recherche d'actualités en direct : Tu as accès à l'outil `search_news`. Utilise-le SYSTÉMATIQUEMENT dès que la question de l'utilisateur porte sur des événements récents, des actualités du jour, des déclarations de personnalités, des marchés financiers, ou des thématiques nécessitant des faits vérifiés et à jour.
 2. Lecture approfondie d'articles : Tu as accès à l'outil `get_article_content`. Utilise-le dès que l'utilisateur demande des précisions, des citations exactes ou une analyse détaillée d'un article spécifique.
 3. Démarche journalistique : Adopte un ton journalistique, professionnel, objectif, clair et structuré.
 4. Formattage Markdown : Structure tes réponses avec soin en utilisant du Markdown (titres, listes à puces, éléments clés en gras).
-5. CITATION DES SOURCES : Lorsque tu utilises des informations issues de tes outils, mentionne systématiquement la source/le média et inclus les liens markdown vers les articles originaux (ex: [Titre de l'article](url)).
+5. CITATION OBLIGATOIRE DES SOURCES AVEC LIENS CLIQUABLES :
+Lorsque tu utilises des informations issues de tes outils, tu DOIS TOUJOURS citer tes sources avec leurs liens Markdown cliquables vers les articles originaux (syntaxe obligatoire : `[Nom du média - Titre](url)`).
+À la fin de ta réponse, ajoute SYSTÉMATIQUEMENT une section distincte intitulée :
+### 📰 Sources consultées
+Listant sous forme de puces chaque article trouvé :
+- [Titre de l'article](url) — Source / Auteur (Date)
+Il est FORMELLEMENT INTERDIT de mentionner un média sans insérer son lien URL Markdown complet.
 6. Transparence : Si aucun article n'est trouvé ou si une erreur survient lors de la recherche, informe clairement l'utilisateur et propose-lui des pistes ou reformulations adaptées.
 """
 
@@ -33,6 +39,7 @@ class ChatDeps:
 
 
 async def search_news(
+    ctx: RunContext[Optional[ChatDeps]],
     query: str,
     language: str = "fr",
     country: Optional[str] = None,
@@ -48,6 +55,11 @@ async def search_news(
         country: Code pays optionnel de la source ('fr' pour France, 'us' pour États-Unis, etc.).
     """
     res = await search_news_api(query=query, language=language, country=country, number=5)
+    if ctx.deps is not None:
+        for item in res.get("news", []):
+            url = item.get("url")
+            if url and url not in ctx.deps.loaded_articles:
+                ctx.deps.loaded_articles.append(url)
     return format_news_for_agent(res)
 
 
