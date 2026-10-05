@@ -18,6 +18,10 @@ Ton rôle est d'aider les journalistes à explorer l'actualité, synthétiser de
 
 Règles impératives :
 1. Recherche d'actualités en direct : Tu as accès à l'outil `search_news`. Utilise-le SYSTÉMATIQUEMENT dès que la question de l'utilisateur porte sur des événements récents, des actualités du jour, des déclarations de personnalités, des marchés financiers, ou des thématiques nécessitant des faits vérifiés et à jour.
+CONSIGNE DE RECHERCHE STRICTE POUR L'OUTIL `search_news` :
+- L'API WorldNewsAPI effectue une recherche stricte par mots-clés.
+- Ta `query` DOIT IMPÉRATIVEMENT être courte : 1 à 3 mots-clés maximum (ex: 'bourse Asie', 'CAC 40', 'Nikkei', 'Wall Street', 'taux OAT').
+- Ne mets JAMAIS de longues phrases, ni d'accumulation de synonymes ou de listes de pays (ex: STRICTEMENT INTERDIT : 'marches asiatiques bourses bourse de tokyo shanghai hong kong actualite').
 2. Lecture approfondie d'articles : Tu as accès à l'outil `get_article_content`. Utilise-le dès que l'utilisateur demande des précisions, des citations exactes ou une analyse détaillée d'un article spécifique.
 3. Démarche journalistique : Adopte un ton journalistique, professionnel, objectif, clair et structuré.
 4. Formattage Markdown : Structure tes réponses avec soin en utilisant du Markdown (titres, listes à puces, éléments clés en gras).
@@ -28,7 +32,11 @@ Lorsque tu utilises des informations issues de tes outils, tu DOIS TOUJOURS cite
 Listant sous forme de puces chaque article trouvé :
 - [Titre de l'article](url) — Source / Auteur (Date)
 Il est FORMELLEMENT INTERDIT de mentionner un média sans insérer son lien URL Markdown complet.
-6. Transparence : Si aucun article n'est trouvé ou si une erreur survient lors de la recherche, informe clairement l'utilisateur et propose-lui des pistes ou reformulations adaptées.
+6. TRANSPARENCE ET VÉRACITÉ (RÈGLE ABSOLUE) :
+Si `search_news` ne renvoie aucun article ou si une erreur/quota survient :
+- Tu DOIS déclarer explicitement et immédiatement à l'utilisateur : "Aucun article récent n'a été trouvé dans le flux de dépêches en direct pour cette recherche." (ou signaler le dépassement de quota le cas échéant).
+- Il t'est FORMELLEMENT INTERDIT d'inventer des citations de presse fictives ou d'affirmer que des médias (comme Reuters, Bloomberg, Les Échos, etc.) disent ceci ou cela sans avoir l'article réel issu de `search_news`.
+- Tu peux fournir une mise en perspective générale issue de tes connaissances de fond, mais en précisant explicitement qu'il s'agit d'une analyse générale et non d'articles de presse en direct.
 """
 
 
@@ -36,6 +44,25 @@ Il est FORMELLEMENT INTERDIT de mentionner un média sans insérer son lien URL 
 class ChatDeps:
     """Dépendances injectées dans les exécutions de l'agent de chat pour suivre l'état de la session."""
     loaded_articles: List[str] = field(default_factory=list)
+
+
+STOPWORDS = {
+    "actualite", "actualites", "actualité", "actualités", "article", "articles",
+    "presse", "nouvelles", "news", "dernieres", "dernières", "recentes", "récentes",
+    "de", "des", "du", "la", "le", "les", "en", "un", "une", "sur", "dans", "pour", "par",
+    "et", "ou", "que", "qui", "quoi", "dont", "avec", "sans", "sous", "bourses",
+}
+
+
+def _simplify_query(q: str) -> str:
+    tokens = [w for w in q.lower().split() if w not in STOPWORDS]
+    seen = set()
+    unique_tokens = []
+    for t in tokens:
+        if t not in seen:
+            seen.add(t)
+            unique_tokens.append(t)
+    return " ".join(unique_tokens[:3])
 
 
 async def search_news(
@@ -46,15 +73,21 @@ async def search_news(
 ) -> str:
     """Recherche des articles et dépêches d'actualités récentes sur un sujet ou un mot-clé via WorldNewsAPI.
 
-    À utiliser dès que l'utilisateur pose une question sur l'actualité récente, les faits du jour,
-    des personnalités politiques, économiques ou technologiques, ou demande une revue de presse.
+    IMPORTANT : WorldNewsAPI est un moteur par mots-clés stricts. La query doit être très concise
+    (1 à 3 mots-clés maximum, ex: 'bourse Asie', 'CAC 40', 'Nikkei', 'Wall Street'). Ne pas mettre de phrases.
 
     Args:
-        query: Le mot-clé ou la thématique d'actualité recherchée (ex: 'politique française', 'intelligence artificielle', 'sommet climat').
+        query: Le mot-clé ou la thématique d'actualité recherchée (1 à 3 mots maximum).
         language: Code langue des articles ('fr' pour le français, 'en' pour l'anglais).
         country: Code pays optionnel de la source ('fr' pour France, 'us' pour États-Unis, etc.).
     """
     res = await search_news_api(query=query, language=language, country=country, number=5)
+    # If no news found and query was verbose, automatically retry with simplified keywords
+    if not res.get("news") and not res.get("error"):
+        simplified = _simplify_query(query)
+        if simplified and simplified != query.lower():
+            res = await search_news_api(query=simplified, language=language, country=country, number=5)
+
     if ctx.deps is not None:
         for item in res.get("news", []):
             url = item.get("url")

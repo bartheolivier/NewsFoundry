@@ -312,12 +312,17 @@ async def send_message(
         "timestamp": now_iso,
     }
 
-    # 2. Run PydanticAI agent with history and saved discussion prompt
+    # 2. Run PydanticAI agent with history and latest system prompt
+    custom_context = ""
+    if chat.system_prompt and "Actualités phares du jour" in chat.system_prompt:
+        custom_context = "\n\n" + chat.system_prompt[chat.system_prompt.index("Actualités phares du jour"):]
+    effective_system_prompt = DEFAULT_SYSTEM_PROMPT + custom_context
+
     chat_deps = ChatDeps()
     agent_output = await run_chat_agent(
         chat.messages,
         message_in.content,
-        system_prompt_override=chat.system_prompt,
+        system_prompt_override=effective_system_prompt,
         deps=chat_deps,
     )
 
@@ -344,6 +349,7 @@ async def send_message(
 
     # 5. Persist updated messages and timestamp in database
     chat.messages = list(chat.messages) + [user_msg, assistant_msg]
+    chat.system_prompt = effective_system_prompt
     chat.updated_at = datetime.now(timezone.utc)
     session.add(chat)
     session.commit()
