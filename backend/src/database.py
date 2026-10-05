@@ -1,8 +1,15 @@
 import os
+from pathlib import Path
+from dotenv import load_dotenv
 from models import Chat, User
 from sqlmodel import SQLModel, Session, create_engine, select
 
 import bcrypt
+
+# Charge automatiquement le fichier .env s'il est présent
+env_path = Path(__file__).resolve().parent.parent / ".env"
+if env_path.exists():
+    load_dotenv(env_path)
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./newsfoundry.db")
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
