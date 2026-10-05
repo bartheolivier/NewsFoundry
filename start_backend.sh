@@ -22,7 +22,7 @@ fi
 
 echo "🚀 Démarrage du backend FastAPI sur le port 8000..."
 cd "$BACKEND_DIR"
-nohup "$UV_BIN" run --env-file .env python src/main.py </dev/null > "$LOG_FILE" 2>&1 &
+setsid nohup "$UV_BIN" run --env-file .env python src/main.py </dev/null > "$LOG_FILE" 2>&1 &
 BACKEND_PID=$!
 disown $BACKEND_PID 2>/dev/null
 echo "$BACKEND_PID" > "$PID_FILE"

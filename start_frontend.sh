@@ -22,7 +22,7 @@ fi
 
 echo "🚀 Démarrage du frontend Next.js sur le port 3000..."
 cd "$FRONTEND_DIR"
-nohup "$NPM_BIN" run dev </dev/null > "$LOG_FILE" 2>&1 &
+setsid nohup "$NPM_BIN" run dev </dev/null > "$LOG_FILE" 2>&1 &
 FRONTEND_PID=$!
 disown $FRONTEND_PID 2>/dev/null
 echo "$FRONTEND_PID" > "$PID_FILE"
