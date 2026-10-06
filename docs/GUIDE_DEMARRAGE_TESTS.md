@@ -114,7 +114,7 @@ Pour simplifier le lancement lors des sessions de développement et de démonstr
 
 ## 🧪 4. Exécution des Tests Automatisés
 
-Le backend dispose d'une suite de **45 tests automatisés** couvrant l'intégralité du cycle de vie de l'application (authentification, sécurité multi-tenant, gestion d'erreurs WorldNewsAPI, synthèse de revue de presse et indexation RAG LlamaIndex).
+Le backend dispose d'une suite de **50 tests automatisés** couvrant l'intégralité du cycle de vie de l'application (authentification, sécurité multi-tenant, gestion d'erreurs WorldNewsAPI, garantie déterministe des sources, gestion des quotas LLM, synthèse de revue de presse et indexation RAG LlamaIndex).
 
 ### A. Lancer l'Intégralité de la Suite de Tests Backend
 Depuis le dossier `backend/` :
@@ -126,13 +126,16 @@ PYTHONPATH=src uv run --env-file .env pytest -v
 ### B. Lancer un Module de Test Spécifique
 
 ```bash
+# Tests de garantie déterministe des sources et formatage Markdown (4 tests)
+PYTHONPATH=src uv run --env-file .env pytest tests/test_sources.py -v
+
 # Tests RAG et indexation vectorielle LlamaIndex (6 tests)
 PYTHONPATH=src uv run --env-file .env pytest tests/test_rag.py -v
 
 # Tests de la revue de presse et Structured Outputs (7 tests)
 PYTHONPATH=src uv run --env-file .env pytest tests/test_press_review.py -v
 
-# Tests de sécurité des discussions et isolation multi-utilisateurs (12 tests)
+# Tests de sécurité des discussions, isolation multi-utilisateurs et erreurs IA (13 tests)
 PYTHONPATH=src uv run --env-file .env pytest tests/test_chats.py -v
 
 # Tests d'authentification JWT et hachage de mot de passe (7 tests)

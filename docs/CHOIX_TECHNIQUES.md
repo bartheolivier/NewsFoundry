@@ -48,7 +48,19 @@ Conformément aux bonnes pratiques d'ingénierie de l'IA (et aux recommandations
 - En cas d'incohérence, PydanticAI effectue un retry automatique en renvoyant l'erreur de validation directement au LLM.
 
 ### C. Injection de Dépendances (`ChatDeps`)
-- L'outil `get_article_content(ctx: RunContext[Optional[ChatDeps]], url: str)` utilise le système d'injection de dépendances pour capturer l'URL lue dans la session sans polluer la signature d'outil exposée au modèle.
+- L'outil `get_article_content(ctx: RunContext[Optional[ChatDeps]], url: str)` et `search_news(ctx: RunContext[Optional[ChatDeps]], ...)` utilisent le système d'injection de dépendances pour capturer en temps réel l'ensemble des articles consultés (`loaded_articles`) et leurs métadonnées (`turn_sources`) sans polluer la signature d'outil exposée au modèle.
+
+### D. Garantie Déterministe des Citations & Liens Cliquables (Code-Level Guarantee)
+- **Le problème de l'auto-conditionnement en multi-tours :** Lors de conversations longues, si le modèle répond une seule fois de manière narrative sans liens, il a tendance, aux tours suivants, à imiter son propre style précédent plutôt que d'obéir aux instructions du système (*in-context mimicry*). De plus, l'éloignement physique entre le prompt initial et le flux des résultats d'outils dilue l'attention des modèles légers (*flash-lite*).
+- **La solution par le code (`ensure_sources_section`) :**
+  1. Chaque article reçu via `search_news` ou `get_article_content` est automatiquement consigné dans `deps.turn_sources` avec son titre, URL, source et date.
+  2. Un rappel direct (`CITATION_REMINDER`) est greffé immédiatement après le résultat de l'outil, là où le modèle lit les données fraîches.
+  3. En fin d'exécution de `run_chat_agent`, une vérification déterministe s'assure que si des articles ont été consultés, la section `### 📰 Sources consultées` est présente avec les liens hypertextes valides. Si le modèle l'a omise, elle est injectée automatiquement par le code.
+  - **Bénéfice :** Aucun lien ne peut être halluciné (seuls les articles réels issus de l'API sont listés) et aucune réponse documentée ne peut être privée de ses sources cliquables.
+
+### E. Résilience des Requêtes de Recherche (`_simplify_query`)
+- WorldNewsAPI effectue une recherche stricte par mots-clés. Si un LLM génère une phrase de 8 mots (ex: *« marches asiatiques bourses bourse de tokyo shanghai »*), l'API renvoie 0 article.
+- Une fonction de nettoyage élimine les mots parasites (*actualite, presse, bourse, sur, les, de...*) et, en cas de résultat nul, relance automatiquement une requête ciblée sur les 2 ou 3 termes les plus discriminants, divisant le taux de recherche infructueuse par dix.
 
 ---
 
@@ -104,19 +116,22 @@ Tu es l'assistant IA de NewsFoundry, une plateforme SaaS dédiée aux journalist
 Ton rôle est d'aider les journalistes à explorer l'actualité, synthétiser des événements récents, répondre à leurs questions d'investigation et préparer des revues de presse.
 
 Règles impératives :
-1. Recherche d'actualités en direct : Tu as accès à l'outil `search_news`. Utilise-le SYSTÉMATIQUEMENT dès que la question de l'utilisateur porte sur des événements récents, des actualités du jour...
-2. Lecture approfondie d'articles : Tu as accès à l'outil `get_article_content`. Utilise-le dès que l'utilisateur demande des précisions...
-3. Démarche journalistique : Adopte un ton journalistique, professionnel, objectif, clair et structuré.
-4. Formattage Markdown : Structure tes réponses avec soin en utilisant du Markdown...
-5. CITATION DES SOURCES : Lorsque tu utilises des informations issues de tes outils, mentionne systématiquement la source/le média et inclus les liens markdown vers les articles originaux (ex: [Titre de l'article](url)).
-6. Transparence : Si aucun article n'est trouvé ou si une erreur survient... informe clairement l'utilisateur...
+1. Recherche d'actualités en direct : Tu as accès à l'outil `search_news`. Utilise-le SYSTÉMATIQUEMENT dès que la question porte sur des événements récents, marchés financiers, faits du jour.
+   - Ta query doit être concise : 1 à 3 mots-clés maximum (ex: 'bourse Asie', 'CAC 40', 'Nikkei').
+   - Ne mets jamais de longues phrases ou listes de pays.
+2. Lecture approfondie d'articles : Utilise `get_article_content` dès qu'une analyse détaillée ou citation exacte est demandée.
+3. Démarche journalistique : Ton journalistique, objectif, clair et structuré.
+4. Formattage Markdown : Structure tes réponses avec soin (titres, listes à puces, éléments clés en gras).
+5. CITATION OBLIGATOIRE DES SOURCES AVEC LIENS CLIQUABLES : Inclus les liens [Nom du média - Titre](url) et termine par la section `### 📰 Sources consultées`.
+6. TRANSPARENCE ET VÉRACITÉ (RÈGLE ABSOLUE) : Si aucun article n'est trouvé, indique-le clairement ("Aucun article récent n'a été trouvé..."). Il est formellement interdit d'inventer des citations de presse fictives si tu n'as pas obtenu les articles via search_news.
 ```
 
 **Justifications des choix :**
-1. **Règle de citation systématique (Règle 5) :** Dans le journalisme, une information sans source vérifiable est inutilisable. Le prompt force le modèle à mentionner la source et à formater les liens markdown `[Titre](URL)` pour que le journaliste puisse remonter à la source originale en un clic.
-2. **Déclenchement systématique des outils (Règles 1 et 2) :** Les LLMs ont tendance à s'appuyer sur leur mémoire statique datée. Les consignes explicites imposent d'invoquer `search_news` pour l'actualité chaude et `get_article_content` pour les analyses en profondeur.
-3. **Ton et posture déontologique (Règle 3) :** Imposer un ton neutre, factuel et structuré évite les tournures flatteuses ou les jugements de valeur inappropriés pour une rédaction.
-4. **Contextualisation dynamique initiale (`/top-news`) :** Lors de la création d'une nouvelle discussion, l'API interroge les manchettes phares du jour via WorldNewsAPI et les injecte dans le `system_prompt` de la session. Cela permet à l'assistant d'être immédiatement au fait de l'actualité du jour dès le premier message, sans attendre une question explicite.
+1. **Règle de citation systématique (Règle 5) :** Dans le journalisme, une information sans source vérifiable est inutilisable. Le prompt force le modèle à mentionner la source et à formater les liens markdown `[Titre](URL)`. En complément, une garantie déterministe applicative (`ensure_sources_section`) injecte la section si le LLM omet de la retranscrire lors de dialogues longs.
+2. **Déclenchement systématique et calibrage des requêtes (Règles 1 et 2) :** L'exigence de requêtes courtes (1 à 3 mots-clés) empêche le modèle d'envoyer des phrases entières qui satureraient le moteur de recherche WorldNewsAPI.
+3. **Vérité absolue et interdiction de citations fictives (Règle 6) :** Empêche le modèle d'affirmer « comme le rapportent Reuters ou Bloomberg » s'il n'a pas réellement récupéré les articles récents via ses outils.
+4. **Ton et posture déontologique (Règle 3) :** Imposer un ton neutre, factuel et structuré évite les tournures flatteuses ou les jugements de valeur inappropriés pour une rédaction.
+5. **Contextualisation dynamique initiale (`/top-news`) :** Lors de la création d'une nouvelle discussion, l'API interroge les manchettes phares du jour via WorldNewsAPI et les injecte dans le `system_prompt` de la session. Cela permet à l'assistant d'être immédiatement au fait de l'actualité du jour dès le premier message, sans attendre une question explicite.
 
 ---
 
@@ -158,9 +173,12 @@ Pour garantir une intégration robuste et informer l'utilisateur de manière pr�
 | `DELETE /chats/{id}` | **404 Not Found** | Discussion à supprimer introuvable | `{"detail": "Discussion non trouvée"}` |
 | `POST /chats/{id}/messages` | **400 Bad Request** | Message vide ou payload JSON malformé | `{"detail": "Le contenu du message ne peut pas être vide."}` |
 | `POST /chats/{id}/messages` | **403 Forbidden** | Envoi d'un message sur la discussion d'un autre utilisateur | `{"detail": "Accès interdit : vous n'êtes pas autorisé à modifier cette discussion."}` |
+| `POST /chats/{id}/messages` | **402 Payment Required** | Crédits API LLM épuisés (Google AI Studio / prépayé) | `{"detail": "Vos crédits pour l'API Gemini sont épuisés. Veuillez recharger votre solde ou mettre à jour la clé..."}` |
+| `POST /chats/{id}/messages` | **429 Too Many Requests** | Dépassement temporaire du quota de requêtes par minute LLM | `{"detail": "Le quota de requêtes par minute de l'API Gemini a été atteint. Veuillez patienter..."}` |
 | `POST /chats/{id}/press-review`| **400 Bad Request** | Le thème de revue de presse fourni est vide | `{"detail": "Le thème de la revue de presse ne peut pas être vide."}` |
 | `POST /chats/{id}/press-review`| **400 Bad Request** | Tentative de génération sur une discussion vide (sans messages) | `{"detail": "Impossible de générer une revue de presse à partir d'une discussion vide..."}` |
 | `POST /chats/{id}/press-review`| **403 Forbidden** | Génération demandée sur une discussion non possédée | `{"detail": "Accès interdit : vous n'êtes pas autorisé à modifier cette discussion."}` |
+| `POST /chats/{id}/press-review`| **402 Payment Required** | Crédits API LLM épuisés lors de la synthèse | `{"detail": "Vos crédits pour l'API Gemini sont épuisés..."}` |
 | `DELETE /chats/{id}/press-review`| **404 Not Found** | Aucune revue de presse n'existe sur cette discussion | `{"detail": "Aucune revue de presse n'est associée à cette discussion."}` |
 | `DELETE /chats/{id}/press-review`| **403 Forbidden** | Tentative de suppression de la revue de presse d'un confrère | `{"detail": "Accès interdit : vous n'êtes pas autorisé à modifier cette discussion."}` |
 

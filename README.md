@@ -31,14 +31,14 @@ Pour faciliter la prise en main et limiter toute perte de contexte, la documenta
    - Connexion sécurisée par tokens JWT avec expiration à 24h et hachage de mot de passe `bcrypt`.
    - Isolation stricte des données : chaque journaliste n'a accès qu'à ses propres discussions et revues de presse (rejet HTTP 403 Forbidden sur toute tentative d'accès non autorisé).
 2. **Agent de Chat Journaliste (PydanticAI) :**
-   - Recherche en direct des actualités mondiales via l'outil `search_news` (WorldNewsAPI).
+   - Recherche en direct des actualités mondiales via l'outil `search_news` (WorldNewsAPI) avec nettoyage automatique des requêtes.
    - Lecture approfondie et extraction du contenu textuel intégral via l'outil `get_article_content`.
-   - Citation systématique des sources et liens markdown originaux vers les médias.
+   - Citation systématique des sources et liens markdown originaux, garantie de manière déterministe par le code (`ensure_sources_section`).
    - Suivi transparent des articles explorés grâce à l'injection de dépendances `RunContext[ChatDeps]`.
-3. **Indexation Vectorielle RAG en Mémoire (LlamaIndex) :**
+4. **Indexation Vectorielle RAG en Mémoire (LlamaIndex) :**
    - Indexation vectorielle éphémère (`VectorStoreIndex`) sans base vectorielle externe lourde.
    - Recherche sémantique ciblée sur le thème de la revue de presse pour extraire uniquement les segments d'articles les plus denses et pertinents.
-4. **Agent Spécialisé de Revue de Presse (*Structured Outputs*) :**
+5. **Agent Spécialisé de Revue de Presse (*Structured Outputs*) :**
    - Second agent dédié agissant comme rédacteur en chef expert.
    - Sorties strictement typées via le schéma `PressReviewOutput` (titre, thème, synthèse globale, résumés d'articles, perspectives).
    - Onglet dédié permettant de consulter, copier en un clic et supprimer les revues de presse générées.
@@ -75,9 +75,9 @@ Accédez ensuite à `http://localhost:3000`.
 
 ---
 
-## 🧪 Tests Automatisés (45 tests)
+## 🧪 Tests Automatisés (50 tests)
 
-Le projet intègre une suite complète de **45 tests automatisés** validés dans le pipeline d'intégration continue GitHub Actions :
+Le projet intègre une suite complète de **50 tests automatisés** validés dans le pipeline d'intégration continue GitHub Actions :
 
 ```bash
 cd backend
