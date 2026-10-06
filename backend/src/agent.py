@@ -44,6 +44,55 @@ Si `search_news` ne renvoie aucun article ou si une erreur/quota survient :
 class ChatDeps:
     """Dépendances injectées dans les exécutions de l'agent de chat pour suivre l'état de la session."""
     loaded_articles: List[str] = field(default_factory=list)
+    # Métadonnées des articles réellement obtenus pendant le tour courant (titre, url, source, date)
+    turn_sources: List[dict[str, str]] = field(default_factory=list)
+
+
+SOURCES_HEADER = "### 📰 Sources consultées"
+
+CITATION_REMINDER = (
+    "\n[RAPPEL OBLIGATOIRE] Appuie ta réponse sur ces articles, cite-les dans le texte "
+    "avec des liens Markdown [Titre](url) et termine par la section '" + SOURCES_HEADER + "'."
+)
+
+
+def _record_source(deps: Optional[ChatDeps], url: str, title: str = "", source: str = "", date: str = "") -> None:
+    """Mémorise une source consultée pendant le tour (dédupliquée par URL)."""
+    if deps is None or not url:
+        return
+    if url not in deps.loaded_articles:
+        deps.loaded_articles.append(url)
+    if not any(s["url"] == url for s in deps.turn_sources):
+        deps.turn_sources.append({
+            "url": url,
+            "title": (title or url).strip(),
+            "source": (source or "").strip(),
+            "date": (date or "")[:10],
+        })
+
+
+def _format_sources_section(sources: List[dict[str, str]]) -> str:
+    lines = [SOURCES_HEADER]
+    for s in sources:
+        title = s["title"].replace("[", "(").replace("]", ")")
+        meta = " ".join(p for p in [s.get("source", ""), f"({s['date']})" if s.get("date") else ""] if p)
+        lines.append(f"- [{title}]({s['url']})" + (f" — {meta}" if meta else ""))
+    return "\n".join(lines)
+
+
+def ensure_sources_section(text: str, sources: List[dict[str, str]]) -> str:
+    """Garantit la présence d'une section de sources cliquables lorsque des articles ont été consultés.
+
+    Si le modèle a omis la section (ou n'a inséré aucun des liens), elle est générée à partir
+    des articles réellement renvoyés par les outils pendant le tour.
+    """
+    if not sources:
+        return text
+    has_header = "Sources consultées" in text
+    has_any_link = any(s["url"] in text for s in sources)
+    if has_header and has_any_link:
+        return text
+    return text.rstrip() + "\n\n" + _format_sources_section(sources)
 
 
 STOPWORDS = {
@@ -88,12 +137,18 @@ async def search_news(
         if simplified and simplified != query.lower():
             res = await search_news_api(query=simplified, language=language, country=country, number=5)
 
-    if ctx.deps is not None:
-        for item in res.get("news", []):
-            url = item.get("url")
-            if url and url not in ctx.deps.loaded_articles:
-                ctx.deps.loaded_articles.append(url)
-    return format_news_for_agent(res)
+    for item in res.get("news", []):
+        _record_source(
+            ctx.deps,
+            url=item.get("url", ""),
+            title=item.get("title", ""),
+            source=item.get("author", ""),
+            date=item.get("publish_date", ""),
+        )
+    formatted = format_news_for_agent(res)
+    if res.get("news"):
+        formatted += CITATION_REMINDER
+    return formatted
 
 
 async def get_article_content(
@@ -108,10 +163,18 @@ async def get_article_content(
     Args:
         url: L'URL exacte de l'article de presse à lire et analyser.
     """
-    if ctx.deps is not None:
-        if url not in ctx.deps.loaded_articles:
-            ctx.deps.loaded_articles.append(url)
     res = await extract_article_content_api(url=url)
+    if ctx.deps is not None and url not in ctx.deps.loaded_articles:
+        ctx.deps.loaded_articles.append(url)
+    if not res.get("error"):
+        _record_source(
+            ctx.deps,
+            url=res.get("url") or url,
+            title=res.get("title", ""),
+            source=", ".join(res.get("authors") or []),
+            date=res.get("publish_date", ""),
+        )
+        return format_article_content_for_agent(res) + CITATION_REMINDER
     return format_article_content_for_agent(res)
 
 
@@ -183,7 +246,8 @@ async def run_chat_agent(
     message_history = build_model_messages(history)
     actual_deps = deps if deps is not None else ChatDeps()
     result = await agent.run(user_prompt, message_history=message_history, deps=actual_deps)
-    return str(result.output), actual_deps.loaded_articles
+    text = ensure_sources_section(str(result.output), actual_deps.turn_sources)
+    return text, actual_deps.loaded_articles
 
 
 # ---------------------------------------------------------
