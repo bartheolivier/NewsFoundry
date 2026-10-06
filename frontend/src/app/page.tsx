@@ -344,9 +344,26 @@ export default function HomePage() {
       } else {
         const errData = await res.json().catch(() => ({}));
         setErrorMessage(errData.detail || "Erreur lors de l'envoi du message.");
+        // Rollback optimistic message so the conversation stays consistent
+        setActiveChat((prev) =>
+          prev
+            ? {
+                ...prev,
+                messages: prev.messages.slice(0, -1),
+              }
+            : null
+        );
       }
     } catch {
-      setErrorMessage("Impossible de joindre le serveur.");
+      setErrorMessage("Impossible de joindre le serveur ou erreur réseau inattendue.");
+      setActiveChat((prev) =>
+        prev
+          ? {
+              ...prev,
+              messages: prev.messages.slice(0, -1),
+            }
+          : null
+      );
     } finally {
       setIsSending(false);
     }

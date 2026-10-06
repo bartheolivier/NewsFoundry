@@ -62,12 +62,54 @@ app.add_middleware(
 )
 
 
+def handle_llm_exception(exc: Exception) -> HTTPException:
+    """Transforme les erreurs d'API LLM (Gemini, OpenAI) en HTTPException explicites."""
+    exc_str = str(exc)
+    body_str = ""
+    status_code = getattr(exc, "status_code", None)
+    body = getattr(exc, "body", None)
+    if body:
+        body_str = str(body)
+
+    combined_text = f"{exc_str} {body_str}".lower()
+
+    if status_code == 402 or "depleted" in combined_text or "prepayment" in combined_text or "resource_exhausted" in combined_text:
+        return HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail="Vos crédits pour l'API Gemini (Google AI Studio) sont épuisés. Veuillez recharger votre solde sur ai.google.dev ou renseigner une nouvelle clé API dans backend/.env.",
+        )
+    elif status_code == 429 or "rate_limit" in combined_text or "too many requests" in combined_text:
+        return HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Le quota de requêtes par minute de l'API Gemini a été atteint. Veuillez patienter quelques secondes avant de réessayer.",
+        )
+    elif status_code in (401, 403) or "api_key_invalid" in combined_text or "invalid api key" in combined_text:
+        return HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Clé API Gemini invalide ou non autorisée. Vérifiez GEMINI_API_KEY dans backend/.env.",
+        )
+    elif status_code == 404:
+        return HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Le modèle Gemini configuré est introuvable ou déprécié ({getattr(exc, 'model_name', 'inconnu')}).",
+        )
+    return HTTPException(
+        status_code=status.HTTP_502_BAD_GATEWAY,
+        detail=f"Erreur du fournisseur d'IA : {exc_str}",
+    )
+
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled exception on {request.method} {request.url}: {exc}", exc_info=True)
     return JSONResponse(
         status_code=500,
         content={"detail": f"Erreur interne du serveur: {str(exc)}"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "*",
+            "Access-Control-Allow-Methods": "*",
+        },
     )
 
 
@@ -319,12 +361,16 @@ async def send_message(
     effective_system_prompt = DEFAULT_SYSTEM_PROMPT + custom_context
 
     chat_deps = ChatDeps()
-    agent_output = await run_chat_agent(
-        chat.messages,
-        message_in.content,
-        system_prompt_override=effective_system_prompt,
-        deps=chat_deps,
-    )
+    try:
+        agent_output = await run_chat_agent(
+            chat.messages,
+            message_in.content,
+            system_prompt_override=effective_system_prompt,
+            deps=chat_deps,
+        )
+    except Exception as exc:
+        logger.error(f"Erreur agent IA : {exc}")
+        raise handle_llm_exception(exc)
 
     if isinstance(agent_output, tuple):
         assistant_text, new_urls = agent_output
@@ -410,12 +456,16 @@ async def create_chat_press_review(
             print(f"Warning: RAG retrieval failed: {exc}")
 
     # 2. Appel de l'agent spécialisé de revue de presse avec le contexte RAG enrichi
-    generated_output = await generate_press_review(
-        chat_messages=chat.messages,
-        topic=topic,
-        system_prompt=chat.system_prompt,
-        rag_context=rag_context,
-    )
+    try:
+        generated_output = await generate_press_review(
+            chat_messages=chat.messages,
+            topic=topic,
+            system_prompt=chat.system_prompt,
+            rag_context=rag_context,
+        )
+    except Exception as exc:
+        logger.error(f"Erreur revue de presse IA : {exc}")
+        raise handle_llm_exception(exc)
 
     review_dict = generated_output.model_dump()
     review_dict["generated_at"] = datetime.now(timezone.utc).isoformat()

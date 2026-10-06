@@ -1,4 +1,5 @@
 import bcrypt
+from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
@@ -128,16 +129,18 @@ def test_send_message_in_own_chat(client: TestClient):
     )
     chat_id = create_res.json()["id"]
 
-    # Send a message
-    msg_res = client.post(
-        f"/chats/{chat_id}/messages",
-        json={"content": "Quelles sont les nouvelles ?"},
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert msg_res.status_code == 200
-    msg_data = msg_res.json()
-    assert msg_data["role"] == "assistant"
-    assert len(msg_data["content"]) > 0
+    # Send a message with mocked agent
+    with patch("main.run_chat_agent", new_callable=AsyncMock) as mock_agent:
+        mock_agent.return_value = ("Voici les actualités du jour.", [])
+        msg_res = client.post(
+            f"/chats/{chat_id}/messages",
+            json={"content": "Quelles sont les nouvelles ?"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert msg_res.status_code == 200
+        msg_data = msg_res.json()
+        assert msg_data["role"] == "assistant"
+        assert len(msg_data["content"]) > 0
 
     # Verify history is persisted in database
     get_res = client.get(f"/chats/{chat_id}", headers={"Authorization": f"Bearer {token}"})
@@ -147,6 +150,33 @@ def test_send_message_in_own_chat(client: TestClient):
     assert messages[0]["role"] == "user"
     assert messages[0]["content"] == "Quelles sont les nouvelles ?"
     assert messages[1]["role"] == "assistant"
+
+
+def test_send_message_handles_gemini_credits_depleted(client: TestClient):
+    from pydantic_ai.exceptions import ModelHTTPError
+    token = get_token_for_user(client)
+    create_res = client.post(
+        "/chats",
+        json={"title": "Chat test quota"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    chat_id = create_res.json()["id"]
+
+    depleted_err = ModelHTTPError(
+        status_code=402,
+        model_name="gemini-3.5-flash-lite",
+        body={"error": {"code": 402, "message": "Your prepayment credits are depleted."}},
+    )
+
+    with patch("main.run_chat_agent", new_callable=AsyncMock) as mock_agent:
+        mock_agent.side_effect = depleted_err
+        msg_res = client.post(
+            f"/chats/{chat_id}/messages",
+            json={"content": "Quelles sont les nouvelles ?"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert msg_res.status_code == 402
+        assert "crédits pour l'API Gemini" in msg_res.json()["detail"]
 
 
 def test_delete_own_chat(client: TestClient):
