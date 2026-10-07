@@ -145,7 +145,61 @@ articles_data = await asyncio.gather(*tasks, return_exceptions=True)
 
 ---
 
-## 📊 6. Tableau Récapitulatif des Pistes d'Amélioration
+## 🧩 6. Piste n°5 : Architecture Modulaire à base de « Skills » (Compétences Métier & Dynamic Loading)
+
+### A. Constat & Justification
+Actuellement, l'agent de NewsFoundry fonctionne avec des **outils atomiques unitaires** (`search_news`, `get_article_content`) injectés en bloc dans son prompt système.
+
+À mesure qu'une plateforme SaaS journalistique grandit et intègre de nouvelles capacités (recherche financière spécialisée, fact-checking de rumeurs, analyse d'opinions, comparaison de dépêches, transcription de podcasts) :
+1. **Saturation de la fenêtre de contexte & Coût :** Énumérer 15 ou 20 outils dans le prompt système consomme des milliers de tokens d'entrée à chaque message utilisateur, augmentant à la fois la facture d'inférence et le *Time to First Token*.
+2. **Dilution d'attention & Hallucinations d'outils :** Plus le catalogue d'outils s'élargit, plus le LLM hésite entre des fonctions proches et risque d'appeler le mauvais outil ou d'omettre des règles essentielles.
+3. **Absence de méthodologie procédurale :** Un outil brut sait exécuter une action technique (faire une requête HTTP), mais ne sait pas *selon quelle déontologie ni dans quel ordre journalistique rigoureux* enchaîner les étapes.
+
+### B. Solution Technique Proposée : Le Découpage en « Skills » Composables
+
+Un **Skill (Compétence)** est une brique métier supérieure qui associe :
+* Un **protocole procédural** (la marche à suivre, la méthode d'enquête, les critères de validation).
+* Un **sous-ensemble d'outils dédiés** (uniquement les 2 ou 3 outils requis pour cette spécialité).
+* Des **exemples et règles de formatage stricts** propres au domaine.
+
+#### Exemple d'Architecture de Skills pour NewsFoundry :
+
+```text
+               Requête du journaliste
+                         │
+                         ▼
+             [Routeur d'Intentions / Harnais]
+                         │
+         ┌───────────────┼───────────────┐
+         ▼               ▼               ▼
+┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
+│ SKILL : VEILLE  │ │ SKILL : ENQUÊTE │ │ SKILL : REVUE   │
+│ FLASH DE MARCHÉ │ │ & FACT-CHECKING │ │ DE PRESSE RAG   │
+├─────────────────┤ ├─────────────────┤ ├─────────────────┤
+│ • Protocole :   │ │ • Protocole :   │ │ • Protocole :   │
+│   Indices, taux,│ │   Recoupement   │ │   Hiérarchie de │
+│   valeurs tech  │ │   3 rédactions  │ │   l'information │
+│ • Outil :       │ │ • Outils :      │ │ • Outils :      │
+│   search_news   │ │   search_news + │ │   LlamaIndex    │
+│   (filtre éco)  │ │   get_article + │ │   Retriever +   │
+│                 │ │   vérif. dates  │ │   Schéma JSON   │
+└─────────────────┘ └─────────────────┘ └─────────────────┘
+```
+
+#### Chargement Dynamique à la Demande (*Dynamic Skill Loading*)
+Le harnais de l'application analyse l'intention du journaliste lors du premier tour :
+1. Si l'utilisateur demande une simple veille, seul le **Skill Veille** est activé.
+2. Si le journaliste entreprend une investigation poussée, le harnais charge dynamiquement le **Skill Enquête & Fact-Checking**, déployant le protocole de vérification croisée et la lecture approfondie.
+3. Les outils inutiles restent déchargés, allégeant le prompt de plus de 60 %.
+
+### C. Objectif Mesurable
+- **Économie de tokens de prompt :** Réduction de **50 % à 70 %** de la taille du prompt d'outils sur les requêtes ciblées.
+- **Réduction du taux d'erreur :** Quasi-élimination des appels d'outils non pertinents.
+- **Extensibilité modulaire :** Capacité d'ajouter de nouvelles compétences métiers par de simples modules indépendants sans retoucher le code central de l'agent.
+
+---
+
+## 📊 7. Tableau Récapitulatif des Pistes d'Amélioration
 
 | Piste d'Amélioration | Problème Résolu | Objectif Mesurable | Complexité | Impact Utilisateur |
 | :--- | :--- | :--- | :--- | :--- |
@@ -154,3 +208,4 @@ articles_data = await asyncio.gather(*tasks, return_exceptions=True)
 | **3. Tracing MLOps avec MLflow** | Manque de visibilité sur les ralentissements | **100 % d'observabilité** span-by-span | Moyenne | 🌟🌟🌟 (Maintenance & Qualité) |
 | **4. Cache TTL WorldNewsAPI** | Quota limité (50 req/j) et latence externe | **40 % d'économie de quota**, < 10 ms | Faible | 🌟🌟🌟🌟 (Résilience) |
 | **5. Cache vectoriel d'embeddings** | Recalcul redondant d'embeddings Gemini | **Indexation < 100 ms** pour articles déjà vus | Faible | 🌟🌟🌟 (Vitesse RAG) |
+| **6. Architecture modulaire à base de Skills** | Saturation du prompt et manque de méthode métier | **-50 % à -70 % de tokens prompt**, modularité | Moyenne | 🌟🌟🌟🌟 (Architecture & Évolutivité) |
