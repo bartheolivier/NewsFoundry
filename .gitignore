@@ -20,3 +20,7 @@ Documentation/
 *.sqlite3
 **/AGENTS.md
 **/CLAUDE.md
+
+# Navigation scripts (keep local)
+naviguer_etapes.sh
+revenir_main.sh
