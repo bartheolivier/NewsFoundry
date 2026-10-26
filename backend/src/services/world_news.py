@@ -1,4 +1,5 @@
 import os
+import re
 import time
 from typing import Any, List, Optional
 import httpx
@@ -8,6 +9,32 @@ WORLD_NEWS_API_BASE = "https://api.worldnewsapi.com"
 # In-memory cache for top news to avoid exhausting the 50 calls/day quota
 _top_news_cache: dict[str, Any] = {"timestamp": 0, "data": []}
 CACHE_TTL_SECONDS = 3600  # 1 hour cache
+
+IRRELEVANT_HEADLINE_PATTERNS = [
+    r"^le\s+\d+/\d+",                  # Ex: "Le 5/6 du lundi", "Le 6/9 du"
+    r"^le\s+journal\s+de\s+\d+h",     # Ex: "Le journal de 8h"
+    r"podcast",
+    r"horoscope",
+    r"météo\b",
+    r"programme\s+tv",
+    r"grille\s+des\s+programmes",
+    r"ouverture\s+dans\s+un\s+nouvel\s+onglet",
+    r"suivre\s+radio\s+france",
+    r"^la\s+chronique\s+de",
+    r"^le\s+billet\s+de",
+    r"revue\s+de\s+presse\s+du",
+]
+
+
+def is_relevant_headline(title: str, summary: str = "") -> bool:
+    """Filtre les annonces d'émissions, grilles de podcasts et bulletins sans contenu informatif réel."""
+    if not title or len(title.strip()) < 15:
+        return False
+    combined = f"{title} {summary}".lower()
+    for pattern in IRRELEVANT_HEADLINE_PATTERNS:
+        if re.search(pattern, combined, re.IGNORECASE):
+            return False
+    return True
 
 
 def get_world_news_api_key(api_key: Optional[str] = None) -> Optional[str]:
@@ -25,10 +52,10 @@ async def get_top_news_api(
     language: str = "fr",
     api_key: Optional[str] = None,
 ) -> List[dict[str, Any]]:
-    """Récupère les actualités phares du jour via la route /top-news de WorldNewsAPI.
+    """Récupère les 3 actualités phares majeures du jour via la route /top-news de WorldNewsAPI.
 
     Met en cache les résultats 1h pour préserver le quota de requêtes.
-    Retourne une liste synthétique d'articles du jour.
+    Filtre les grilles radio / podcasts pour ne retenir que de vrais événements informatifs.
     """
     global _top_news_cache
     now = time.time()
@@ -51,20 +78,48 @@ async def get_top_news_api(
                 clusters = data.get("top_news", [])
                 top_articles: List[dict[str, Any]] = []
 
-                # Extract the main headline from the top 5 clusters
-                for cluster in clusters[:5]:
+                # Parcours des clusters en éliminant les programmes radio/podcasts
+                for cluster in clusters:
                     cluster_news = cluster.get("news", [])
                     if cluster_news:
                         lead_article = cluster_news[0]
-                        summary = lead_article.get("summary") or lead_article.get("text", "")
+                        title = lead_article.get("title", "").strip()
+                        raw_summary = lead_article.get("summary") or lead_article.get("text", "")
+
+                        # Filtrage des non-actualités
+                        if not is_relevant_headline(title, raw_summary):
+                            continue
+
+                        # Nettoyage des mentions parasites dans le résumé
+                        summary = raw_summary
+                        if "Suivre Radio France" in summary:
+                            summary = summary.split("Suivre Radio France")[0].strip()
                         if len(summary) > 300:
-                            summary = summary[:300] + "..."
+                            summary = summary[:300].rstrip() + "..."
+
                         top_articles.append({
-                            "title": lead_article.get("title", ""),
+                            "title": title,
                             "summary": summary,
                             "url": lead_article.get("url", ""),
                             "publish_date": lead_article.get("publish_date", ""),
                         })
+
+                        # Ne retenir que les 3 actualités majeures pour ne pas surcharger la vue
+                        if len(top_articles) >= 3:
+                            break
+
+                # Fallback si le filtrage a été trop strict
+                if not top_articles and clusters:
+                    for cluster in clusters[:3]:
+                        cluster_news = cluster.get("news", [])
+                        if cluster_news:
+                            lead_article = cluster_news[0]
+                            top_articles.append({
+                                "title": lead_article.get("title", "").strip(),
+                                "summary": (lead_article.get("summary") or lead_article.get("text", ""))[:300],
+                                "url": lead_article.get("url", ""),
+                                "publish_date": lead_article.get("publish_date", ""),
+                            })
 
                 if top_articles:
                     _top_news_cache = {"timestamp": now, "data": top_articles}

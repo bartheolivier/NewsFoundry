@@ -201,7 +201,7 @@ async def create_chat(
     context_lines = []
     if top_news:
         context_lines.append("\nActualités phares du jour (contexte initial de la discussion) :")
-        for idx, art in enumerate(top_news[:5], 1):
+        for idx, art in enumerate(top_news[:3], 1):
             context_lines.append(f"- {art['title']} : {art['summary']}")
 
     chat_prompt = (
@@ -232,9 +232,9 @@ async def create_chat(
 async def get_top_news(
     current_user: User = Depends(get_current_user),
 ):
-    """Récupère les 5 actualités phares du jour (avec mise en cache 1h)."""
+    """Récupère les 3 actualités phares du jour (avec mise en cache 1h)."""
     top_news = await get_top_news_api(country="fr", language="fr")
-    return top_news[:5]
+    return top_news[:3]
 
 
 

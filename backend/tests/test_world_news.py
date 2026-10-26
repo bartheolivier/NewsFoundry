@@ -172,11 +172,68 @@ async def test_agent_with_search_news_tool():
 from services.world_news import (
     extract_article_content_api,
     format_article_content_for_agent,
+    format_news_for_agent,
     get_top_news_api,
+    is_relevant_headline,
+    search_news_api,
 )
 
 
 import services.world_news
+
+def test_is_relevant_headline():
+    # Podcasts, grilles radio et bulletins météo doivent être rejetés
+    assert is_relevant_headline("Le 5/6 du lundi 26 octobre 2026", "Suivre Radio France sur Google...") is False
+    assert is_relevant_headline("Podcast : Les grands dossiers", "Découvrez notre nouvel épisode...") is False
+    assert is_relevant_headline("Météo du week-end en France", "Prévisions pour samedi et dimanche") is False
+    assert is_relevant_headline("Le journal de 8h du 26 octobre", "Le point complet sur l'actualité") is False
+    assert is_relevant_headline("Court", "Trop court") is False
+
+    # Vraies actualités substantielles doivent être acceptées
+    assert is_relevant_headline("Lula bat Flavio Bolsonaro et est réélu président du Brésil", "Le candidat de gauche a remporté l'élection...") is True
+    assert is_relevant_headline("Mobilisation des lycéens : le gouvernement reçoit les organisations", "Des annonces sont attendues...") is True
+
+
+@pytest.mark.anyio
+async def test_get_top_news_api_filters_podcasts_and_keeps_substantive():
+    services.world_news._top_news_cache = {"timestamp": 0, "data": []}
+    mock_data = {
+        "top_news": [
+            {
+                # Cluster 1 : Podcast / grille radio non pertinent
+                "news": [
+                    {
+                        "title": "Le 5/6 du lundi 26 octobre 2026",
+                        "summary": "Le 5/6 du lundi. Suivre Radio France sur Google...",
+                        "url": "https://example.com/podcast-5-6",
+                        "publish_date": "2026-10-26",
+                    }
+                ]
+            },
+            {
+                # Cluster 2 : Vraie actualité majeure
+                "news": [
+                    {
+                        "title": "Lula bat Flavio Bolsonaro et est réélu président du Brésil",
+                        "summary": "Le candidat de gauche a été réélu président du Brésil.",
+                        "url": "https://example.com/lula-election",
+                        "publish_date": "2026-10-26",
+                    }
+                ]
+            }
+        ]
+    }
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = mock_data
+
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_resp
+        articles = await get_top_news_api(country="fr", language="fr", api_key="dummy_key")
+        # Le premier cluster (podcast) doit avoir été ignoré au profit de l'actualité réelle
+        assert len(articles) == 1
+        assert "Lula bat Flavio Bolsonaro" in articles[0]["title"]
+
 
 @pytest.mark.anyio
 async def test_get_top_news_api_success():

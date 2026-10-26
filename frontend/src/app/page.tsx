@@ -815,7 +815,7 @@ ${review.press_review.perspectives ? `**Perspectives :**\n${review.press_review.
                         <span>Actualités phares du jour (Breaking News) :</span>
                       </div>
                       <ul className={styles.topNewsList}>
-                        {topNews.slice(0, 5).map((news, idx) => (
+                        {topNews.slice(0, 3).map((news, idx) => (
                           <li
                             key={idx}
                             className={styles.topNewsItem}
