@@ -134,3 +134,11 @@ class MessageResponse(BaseModel):
     loaded_articles: List[str] = []
 
 
+class TopNewsItem(BaseModel):
+    title: str
+    summary: str
+    url: Optional[str] = ""
+    publish_date: Optional[str] = ""
+
+
+

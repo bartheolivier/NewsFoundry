@@ -56,6 +56,13 @@ interface ChatDetail {
   loaded_articles?: string[];
 }
 
+interface TopNewsItem {
+  title: string;
+  summary: string;
+  url?: string;
+  publish_date?: string;
+}
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export default function HomePage() {
@@ -70,6 +77,9 @@ export default function HomePage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState("");
+
+  // Top News state (Étape 5 & Home)
+  const [topNews, setTopNews] = useState<TopNewsItem[]>([]);
 
   // Press Review state (Étape 7)
   const [activeTab, setActiveTab] = useState<"chat" | "reviews">("chat");
@@ -90,13 +100,33 @@ export default function HomePage() {
     }
   }, [isAuthenticated, isLoading, router]);
 
-  // Load chats and press reviews on initial mount
+  // Load chats, press reviews and top news on initial mount
   useEffect(() => {
     if (token) {
       loadChats();
       loadPressReviews();
+      loadTopNews();
     }
   }, [token]);
+
+  const loadTopNews = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/top-news`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          setTopNews(data);
+        }
+      }
+    } catch {
+      // ignore, fallback to default examples
+    }
+  };
+
 
   // Scroll to bottom when activeChat messages change
   useEffect(() => {
@@ -778,18 +808,44 @@ ${review.press_review.perspectives ? `**Perspectives :**\n${review.press_review.
                     Posez-moi des questions sur l'actualité récente ou demandez-moi de préparer une synthèse sur un sujet spécifique.
                   </p>
 
-                  <div className={styles.examplesHeader}>Exemples :</div>
-                  <ul className={styles.examplesList}>
-                    <li onClick={() => handleSendMessage("Quelles sont les dernières nouvelles en politique ?")}>
-                      &ldquo;Quelles sont les dernières nouvelles en politique ?&rdquo;
-                    </li>
-                    <li onClick={() => handleSendMessage("Génère une revue de presse sur la technologie")}>
-                      &ldquo;Génère une revue de presse sur la technologie&rdquo;
-                    </li>
-                    <li onClick={() => handleSendMessage("Résume l'actualité économique de la semaine")}>
-                      &ldquo;Résume l'actualité économique de la semaine&rdquo;
-                    </li>
-                  </ul>
+                  {topNews.length > 0 ? (
+                    <>
+                      <div className={styles.topNewsHeader}>
+                        <span className={styles.topNewsBadge}>⚡ En direct</span>
+                        <span>Actualités phares du jour (Breaking News) :</span>
+                      </div>
+                      <ul className={styles.topNewsList}>
+                        {topNews.slice(0, 5).map((news, idx) => (
+                          <li
+                            key={idx}
+                            className={styles.topNewsItem}
+                            onClick={() => handleSendMessage(news.title)}
+                            title="Cliquez pour lancer une investigation sur ce sujet"
+                          >
+                            <div className={styles.topNewsItemTitle}>{news.title}</div>
+                            {news.summary && (
+                              <div className={styles.topNewsItemSummary}>{news.summary}</div>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : (
+                    <>
+                      <div className={styles.examplesHeader}>Exemples :</div>
+                      <ul className={styles.examplesList}>
+                        <li onClick={() => handleSendMessage("Quelles sont les dernières nouvelles en politique ?")}>
+                          &ldquo;Quelles sont les dernières nouvelles en politique ?&rdquo;
+                        </li>
+                        <li onClick={() => handleSendMessage("Génère une revue de presse sur la technologie")}>
+                          &ldquo;Génère une revue de presse sur la technologie&rdquo;
+                        </li>
+                        <li onClick={() => handleSendMessage("Résume l'actualité économique de la semaine")}>
+                          &ldquo;Résume l'actualité économique de la semaine&rdquo;
+                        </li>
+                      </ul>
+                    </>
+                  )}
                 </div>
               )}
 

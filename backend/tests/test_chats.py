@@ -286,3 +286,29 @@ def test_user_isolation_cannot_update_other_users_chat(client: TestClient, sessi
     assert patch_res.status_code == 403
     assert "Accès interdit" in patch_res.json()["detail"]
 
+
+def test_get_top_news_endpoint(client: TestClient):
+    token = get_token_for_user(client)
+    mock_articles = [
+        {
+            "title": "Une du jour : Accord sur l'énergie",
+            "summary": "Résumé de l'accord énergétique...",
+            "url": "https://example.com/energie",
+            "publish_date": "2026-10-26",
+        }
+    ]
+    with patch("main.get_top_news_api", new_callable=AsyncMock) as mock_top:
+        mock_top.return_value = mock_articles
+        # Unauthorized without token
+        unauth_resp = client.get("/top-news")
+        assert unauth_resp.status_code == 401
+
+        # Authorized with token
+        resp = client.get("/top-news", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 1
+        assert "Accord sur l'énergie" in data[0]["title"]
+        assert "Résumé de l'accord" in data[0]["summary"]
+
+

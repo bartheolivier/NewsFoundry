@@ -29,6 +29,7 @@ from models import (
     PressReviewCreate,
     PressReviewItem,
     PressReviewRead,
+    TopNewsItem,
     User,
     UserRead,
 )
@@ -224,6 +225,16 @@ async def create_chat(
     if chat.loaded_articles is None:
         chat.loaded_articles = []
     return chat
+
+
+
+@app.get("/top-news", response_model=list[TopNewsItem])
+async def get_top_news(
+    current_user: User = Depends(get_current_user),
+):
+    """Récupère les 5 actualités phares du jour (avec mise en cache 1h)."""
+    top_news = await get_top_news_api(country="fr", language="fr")
+    return top_news[:5]
 
 
 
