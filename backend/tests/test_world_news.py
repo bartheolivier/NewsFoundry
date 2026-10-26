@@ -311,3 +311,28 @@ async def test_agent_with_extract_news_tool():
         mock_api.return_value = mock_extract_data
         result = await agent.run("Donne-moi les détails de l'article sur https://example.com/geopolitique")
         assert result is not None
+
+
+def test_deduplicate_news_articles():
+    from services.world_news import deduplicate_news_articles, canonical_url
+
+    articles = [
+        {"title": "Crise sociale. Reçus à Matignon...", "url": "https://a.com/1?utm_source=rss"},
+        {"title": "En direct Social. Colère lycéenne : Sébastien Lecornu souhaite un débat sur Parcoursup à l'Assemblée", "url": "https://b.com/2"},
+        # Doublon par titre (reprise de dépêche avec titre quasi-identique sur autre domaine)
+        {"title": "Colère lycéenne : Sébastien Lecornu souhaite un débat sur Parcoursup à l'Assemblée", "url": "https://c.com/2bis"},
+        {"title": "Maintien de l'ordre : Macron monte en première ligne", "url": "https://d.com/3"},
+        # Doublon par URL canonique et par titre
+        {"title": "Crise sociale. Reçus à Matignon...", "url": "https://e.com/1?ref=home"},
+        {"title": "Élection au Brésil : victoire de Lula", "url": "https://f.com/4"},
+    ]
+
+    deduped = deduplicate_news_articles(articles, max_items=5)
+    # Les doublons Matignon et Lecornu doivent être fusionnés
+    assert len(deduped) == 4
+    titles = [a["title"] for a in deduped]
+    assert any("Matignon" in t for t in titles)
+    assert any("Lecornu" in t for t in titles)
+    assert any("Macron" in t for t in titles)
+    assert any("Brésil" in t for t in titles)
+

@@ -37,6 +37,64 @@ def is_relevant_headline(title: str, summary: str = "") -> bool:
     return True
 
 
+def canonical_url(url: str) -> str:
+    """Nettoie une URL en supprimant les paramètres de tracking (?utm_...) et fragments pour comparaison."""
+    if not url:
+        return ""
+    return url.split("?")[0].split("#")[0].rstrip("/")
+
+
+def normalize_title_for_dedup(title: str) -> str:
+    """Normalise un titre pour détecter les doublons de dépêches syndiquées."""
+    if not title:
+        return ""
+    cleaned = re.sub(r"[^\w\s]", " ", title.lower())
+    words = [w for w in cleaned.split() if len(w) > 2]
+    return " ".join(words)
+
+
+def deduplicate_news_articles(articles: List[dict[str, Any]], max_items: int = 5) -> List[dict[str, Any]]:
+    """Élimine les doublons de dépêches d'agences (ex: dépêches AFP reprises sous plusieurs URLs ou titres quasi-identiques)."""
+    unique_articles: List[dict[str, Any]] = []
+    seen_urls: set[str] = set()
+    seen_titles: List[set[str]] = []
+
+    for art in articles:
+        url = canonical_url(art.get("url", ""))
+        title = art.get("title", "").strip()
+        norm_title = normalize_title_for_dedup(title)
+        title_words = set(norm_title.split())
+
+        # Doublon par URL canonique
+        if url and url in seen_urls:
+            continue
+
+        # Doublon par titre (similarité de vocabulaire >= 70%)
+        is_duplicate = False
+        if title_words:
+            for existing_words in seen_titles:
+                overlap = len(title_words & existing_words)
+                union = len(title_words | existing_words)
+                similarity = overlap / union if union else 0
+                if similarity >= 0.70:
+                    is_duplicate = True
+                    break
+
+        if is_duplicate:
+            continue
+
+        if url:
+            seen_urls.add(url)
+        if title_words:
+            seen_titles.append(title_words)
+        unique_articles.append(art)
+
+        if len(unique_articles) >= max_items:
+            break
+
+    return unique_articles
+
+
 def get_world_news_api_key(api_key: Optional[str] = None) -> Optional[str]:
     """Extrait la clé WorldNewsAPI depuis les arguments ou variables d'environnement."""
     return (
@@ -152,9 +210,10 @@ async def search_news_api(
 
     url = f"{WORLD_NEWS_API_BASE}/search-news"
     headers = {"x-api-key": key}
+    fetch_number = min(10, max(number * 2, 8))
     params: dict[str, Any] = {
         "text": query,
-        "number": max(1, min(number, 10)),
+        "number": fetch_number,
     }
     if language:
         params["language"] = language
@@ -184,6 +243,7 @@ async def search_news_api(
                         "author": item.get("author") or "Rédaction",
                         "source_country": item.get("source_country", ""),
                     })
+                articles = deduplicate_news_articles(articles, max_items=number)
                 return {
                     "count": len(articles),
                     "news": articles,

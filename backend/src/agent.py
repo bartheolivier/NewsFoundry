@@ -1,4 +1,5 @@
 import os
+import re
 from dataclasses import dataclass, field
 from typing import Any, List, Optional
 from pydantic_ai import Agent, RunContext
@@ -6,9 +7,12 @@ from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, Text
 from pydantic_ai.models.test import TestModel
 
 from services.world_news import (
+    canonical_url,
+    deduplicate_news_articles,
     extract_article_content_api,
     format_article_content_for_agent,
     format_news_for_agent,
+    normalize_title_for_dedup,
     search_news_api,
 )
 
@@ -32,6 +36,7 @@ Lorsque tu utilises des informations issues de tes outils, tu DOIS TOUJOURS cite
 Listant sous forme de puces chaque article trouvé :
 - [Titre de l'article](url) — Source / Auteur (Date)
 Il est FORMELLEMENT INTERDIT de mentionner un média sans insérer son lien URL Markdown complet.
+DÉDUPLICATION OBLIGATOIRE : Ne liste JAMAIS deux fois le même article ou la même dépêche dans la section 'Sources consultées' (chaque puce doit correspondre à une actualité unique et distincte).
 6. TRANSPARENCE ET VÉRACITÉ (RÈGLE ABSOLUE) :
 Si `search_news` ne renvoie aucun article ou si une erreur/quota survient :
 - Tu DOIS déclarer explicitement et immédiatement à l'utilisateur : "Aucun article récent n'a été trouvé dans le flux de dépêches en direct pour cette recherche." (ou signaler le dépassement de quota le cas échéant).
@@ -57,18 +62,32 @@ CITATION_REMINDER = (
 
 
 def _record_source(deps: Optional[ChatDeps], url: str, title: str = "", source: str = "", date: str = "") -> None:
-    """Mémorise une source consultée pendant le tour (dédupliquée par URL)."""
+    """Mémorise une source consultée pendant le tour (dédupliquée par URL canonique et titre)."""
     if deps is None or not url:
         return
-    if url not in deps.loaded_articles:
+    canon_url = canonical_url(url)
+    if url not in deps.loaded_articles and canon_url not in deps.loaded_articles:
         deps.loaded_articles.append(url)
-    if not any(s["url"] == url for s in deps.turn_sources):
-        deps.turn_sources.append({
-            "url": url,
-            "title": (title or url).strip(),
-            "source": (source or "").strip(),
-            "date": (date or "")[:10],
-        })
+
+    norm_title = normalize_title_for_dedup(title)
+    title_words = set(norm_title.split())
+
+    for s in deps.turn_sources:
+        if canonical_url(s.get("url", "")) == canon_url:
+            return
+        s_words = set(normalize_title_for_dedup(s.get("title", "")).split())
+        if title_words and s_words:
+            overlap = len(title_words & s_words)
+            union = len(title_words | s_words)
+            if union and (overlap / union) >= 0.70:
+                return
+
+    deps.turn_sources.append({
+        "url": url,
+        "title": (title or url).strip(),
+        "source": (source or "").strip(),
+        "date": (date or "")[:10],
+    })
 
 
 def _format_sources_section(sources: List[dict[str, str]]) -> str:
@@ -80,19 +99,88 @@ def _format_sources_section(sources: List[dict[str, str]]) -> str:
     return "\n".join(lines)
 
 
+def deduplicate_sources_section(text: str) -> str:
+    """Nettoie la section 'Sources consultées' pour éliminer les doublons de puces (URL ou titre)."""
+    pattern = r"(###?\s*📰?\s*Sources consultées)"
+    match = re.search(pattern, text, re.IGNORECASE)
+    if not match:
+        return text
+
+    header_start = match.start()
+    header_end = match.end()
+    prefix = text[:header_start]
+    header = text[header_start:header_end]
+    sources_body = text[header_end:]
+
+    lines = sources_body.split("\n")
+    cleaned_lines: List[str] = []
+    seen_urls: set[str] = set()
+    seen_titles: List[set[str]] = []
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith(("- ", "* ", "• ")):
+            link_match = re.search(r"\[(.*?)\]\((.*?)\)", stripped)
+            if link_match:
+                title, url = link_match.groups()
+                canon = canonical_url(url)
+                norm_title = normalize_title_for_dedup(title)
+                title_words = set(norm_title.split())
+
+                if canon and canon in seen_urls:
+                    continue
+
+                is_duplicate = False
+                if title_words:
+                    for existing_words in seen_titles:
+                        overlap = len(title_words & existing_words)
+                        union = len(title_words | existing_words)
+                        if union and (overlap / union) >= 0.70:
+                            is_duplicate = True
+                            break
+
+                if is_duplicate:
+                    continue
+
+                if canon:
+                    seen_urls.add(canon)
+                if title_words:
+                    seen_titles.append(title_words)
+            else:
+                norm_line = normalize_title_for_dedup(stripped)
+                line_words = set(norm_line.split())
+                is_duplicate = False
+                if line_words:
+                    for existing_words in seen_titles:
+                        overlap = len(line_words & existing_words)
+                        union = len(line_words | existing_words)
+                        if union and (overlap / union) >= 0.70:
+                            is_duplicate = True
+                            break
+                if is_duplicate:
+                    continue
+                if line_words:
+                    seen_titles.append(line_words)
+
+        cleaned_lines.append(line)
+
+    return prefix + header + "\n".join(cleaned_lines)
+
+
 def ensure_sources_section(text: str, sources: List[dict[str, str]]) -> str:
     """Garantit la présence d'une section de sources cliquables lorsque des articles ont été consultés.
 
     Si le modèle a omis la section (ou n'a inséré aucun des liens), elle est générée à partir
     des articles réellement renvoyés par les outils pendant le tour.
+    Nettoie également les éventuels doublons dans la section finale.
     """
     if not sources:
-        return text
+        return deduplicate_sources_section(text)
     has_header = "Sources consultées" in text
-    has_any_link = any(s["url"] in text for s in sources)
+    has_any_link = any(canonical_url(s["url"]) in text or s["url"] in text for s in sources)
     if has_header and has_any_link:
-        return text
-    return text.rstrip() + "\n\n" + _format_sources_section(sources)
+        return deduplicate_sources_section(text)
+    return deduplicate_sources_section(text.rstrip() + "\n\n" + _format_sources_section(sources))
 
 
 STOPWORDS = {

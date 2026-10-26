@@ -30,3 +30,32 @@ def test_record_source_deduplicates_and_tracks_urls():
     _record_source(deps, "https://ex.com/a", title="A bis")
     assert deps.loaded_articles == ["https://ex.com/a"]
     assert len(deps.turn_sources) == 1
+
+
+def test_record_source_deduplicates_by_tracking_params_and_title():
+    deps = ChatDeps()
+    _record_source(deps, "https://ex.com/article-1?utm_source=twitter", title="Mobilisation lycéens à Matignon")
+    # Même URL de base sans tracking
+    _record_source(deps, "https://ex.com/article-1", title="Mobilisation lycéens à Matignon")
+    # Même titre ou quasi-identique sur un autre domaine (syndication AFP)
+    _record_source(deps, "https://autre-journal.fr/depeche", title="Mobilisation lycéens à Matignon")
+    assert len(deps.turn_sources) == 1
+
+
+def test_ensure_sources_section_deduplicates_repeated_bullets():
+    input_text = """Synthèse sur la crise.
+
+### 📰 Sources consultées
+- [Crise sociale. Reçus à Matignon](https://ex.com/1) — AFP (2026-10-26)
+- [Colère lycéenne : débat sur Parcoursup](https://ex.com/2) — Rédaction (2026-10-26)
+- [Colère lycéenne : débat sur Parcoursup](https://ex.com/2) — Rédaction (2026-10-26)
+- [Maintien de l'ordre : Macron](https://ex.com/3) — Rédaction (2026-10-26)
+- [Crise sociale. Reçus à Matignon](https://ex.com/1) — AFP (2026-10-26)
+"""
+    cleaned = ensure_sources_section(input_text, [])
+    assert cleaned.count("Matignon") == 1
+    assert cleaned.count("Parcoursup") == 1
+    assert cleaned.count("Macron") == 1
+    assert cleaned.count("https://ex.com/1") == 1
+    assert cleaned.count("https://ex.com/2") == 1
+
