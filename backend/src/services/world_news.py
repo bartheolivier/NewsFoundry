@@ -7,7 +7,7 @@ import httpx
 WORLD_NEWS_API_BASE = "https://api.worldnewsapi.com"
 
 # In-memory cache for top news to avoid exhausting the 50 calls/day quota
-_top_news_cache: dict[str, Any] = {"timestamp": 0, "data": []}
+_top_news_cache: dict[str, Any] = {}
 CACHE_TTL_SECONDS = 3600  # 1 hour cache
 
 IRRELEVANT_HEADLINE_PATTERNS = [
@@ -122,14 +122,15 @@ async def get_top_news_api(
     now = time.time()
     cache_key = f"{country.lower()}_{language.lower()}"
 
-    # Vérification du cache pour le pays/langue demandé (ou structure legacy pour tests)
-    if isinstance(_top_news_cache, dict) and "data" in _top_news_cache and "timestamp" in _top_news_cache:
-        if _top_news_cache["data"] and (now - _top_news_cache["timestamp"] < CACHE_TTL_SECONDS):
-            return _top_news_cache["data"]
-    elif isinstance(_top_news_cache, dict) and cache_key in _top_news_cache:
-        cached = _top_news_cache[cache_key]
-        if cached.get("data") and (now - cached.get("timestamp", 0) < CACHE_TTL_SECONDS):
-            return cached["data"]
+    # Vérification du cache pour le pays/langue demandé
+    if isinstance(_top_news_cache, dict):
+        if cache_key in _top_news_cache:
+            cached = _top_news_cache[cache_key]
+            if cached.get("data") and (now - cached.get("timestamp", 0) < CACHE_TTL_SECONDS):
+                return cached["data"]
+        elif "data" in _top_news_cache and "timestamp" in _top_news_cache:
+            if _top_news_cache["data"] and (now - _top_news_cache["timestamp"] < CACHE_TTL_SECONDS):
+                return _top_news_cache["data"]
 
     key = get_world_news_api_key(api_key)
     if not key:
@@ -191,11 +192,9 @@ async def get_top_news_api(
                             })
 
                 if top_articles:
-                    if isinstance(_top_news_cache, dict) and "data" in _top_news_cache and "timestamp" in _top_news_cache:
-                        _top_news_cache["timestamp"] = now
-                        _top_news_cache["data"] = top_articles
-                    elif isinstance(_top_news_cache, dict):
-                        _top_news_cache[cache_key] = {"timestamp": now, "data": top_articles}
+                    if not isinstance(_top_news_cache, dict):
+                        _top_news_cache = {}
+                    _top_news_cache[cache_key] = {"timestamp": now, "data": top_articles}
                 return top_articles
             return []
     except Exception:

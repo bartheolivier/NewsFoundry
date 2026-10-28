@@ -196,7 +196,7 @@ def test_is_relevant_headline():
 
 @pytest.mark.anyio
 async def test_get_top_news_api_filters_podcasts_and_keeps_substantive():
-    services.world_news._top_news_cache = {"timestamp": 0, "data": []}
+    services.world_news._top_news_cache = {}
     mock_data = {
         "top_news": [
             {
@@ -237,7 +237,7 @@ async def test_get_top_news_api_filters_podcasts_and_keeps_substantive():
 
 @pytest.mark.anyio
 async def test_get_top_news_api_success():
-    services.world_news._top_news_cache = {"timestamp": 0, "data": []}
+    services.world_news._top_news_cache = {}
     mock_data = {
         "top_news": [
             {
