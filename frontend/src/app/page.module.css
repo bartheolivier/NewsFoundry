@@ -579,12 +579,70 @@
 .topNewsHeader {
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
+  justify-content: space-between;
+  width: 100%;
   font-size: 13px;
   font-weight: 700;
   color: #111827;
   margin-bottom: 14px;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.topNewsHeaderLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.countrySelector {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background-color: #f3f4f6;
+  padding: 3px 4px;
+  border-radius: 8px;
+  border: 1px solid #e5e7eb;
+}
+
+.countryBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #4b5563;
+  background: transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1.2;
+}
+
+.countryBtn:hover:not(:disabled) {
+  color: #111827;
+  background-color: #ffffff;
+}
+
+.countryBtnActive {
+  background-color: #ffffff !important;
+  color: #7451eb !important;
+  box-shadow: 0 1px 3px rgba(116, 81, 235, 0.12);
+}
+
+.countryCodeLabel {
+  letter-spacing: 0.03em;
+}
+
+.topNewsLoading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px 0;
+  color: #6b7280;
+  font-size: 13px;
 }
 
 .topNewsBadge {

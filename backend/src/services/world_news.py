@@ -16,6 +16,8 @@ IRRELEVANT_HEADLINE_PATTERNS = [
     r"podcast",
     r"horoscope",
     r"météo\b",
+    r"\bweather\b",
+    r"\bforecast\b",
     r"programme\s+tv",
     r"grille\s+des\s+programmes",
     r"ouverture\s+dans\s+un\s+nouvel\s+onglet",
@@ -23,6 +25,7 @@ IRRELEVANT_HEADLINE_PATTERNS = [
     r"^la\s+chronique\s+de",
     r"^le\s+billet\s+de",
     r"revue\s+de\s+presse\s+du",
+    r"^episode\s+\d+",
 ]
 
 
@@ -117,8 +120,16 @@ async def get_top_news_api(
     """
     global _top_news_cache
     now = time.time()
-    if _top_news_cache["data"] and (now - _top_news_cache["timestamp"] < CACHE_TTL_SECONDS):
-        return _top_news_cache["data"]
+    cache_key = f"{country.lower()}_{language.lower()}"
+
+    # Vérification du cache pour le pays/langue demandé (ou structure legacy pour tests)
+    if isinstance(_top_news_cache, dict) and "data" in _top_news_cache and "timestamp" in _top_news_cache:
+        if _top_news_cache["data"] and (now - _top_news_cache["timestamp"] < CACHE_TTL_SECONDS):
+            return _top_news_cache["data"]
+    elif isinstance(_top_news_cache, dict) and cache_key in _top_news_cache:
+        cached = _top_news_cache[cache_key]
+        if cached.get("data") and (now - cached.get("timestamp", 0) < CACHE_TTL_SECONDS):
+            return cached["data"]
 
     key = get_world_news_api_key(api_key)
     if not key:
@@ -180,7 +191,11 @@ async def get_top_news_api(
                             })
 
                 if top_articles:
-                    _top_news_cache = {"timestamp": now, "data": top_articles}
+                    if isinstance(_top_news_cache, dict) and "data" in _top_news_cache and "timestamp" in _top_news_cache:
+                        _top_news_cache["timestamp"] = now
+                        _top_news_cache["data"] = top_articles
+                    elif isinstance(_top_news_cache, dict):
+                        _top_news_cache[cache_key] = {"timestamp": now, "data": top_articles}
                 return top_articles
             return []
     except Exception:

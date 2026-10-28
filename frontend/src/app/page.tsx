@@ -65,6 +65,13 @@ interface TopNewsItem {
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+const COUNTRIES = [
+  { code: "fr", label: "France", flag: "🇫🇷" },
+  { code: "us", label: "USA", flag: "🇺🇸" },
+  { code: "gb", label: "UK", flag: "🇬🇧" },
+  { code: "de", label: "Allemagne", flag: "🇩🇪" },
+];
+
 export default function HomePage() {
   const { user, token, isAuthenticated, isLoading, logout } = useAuth();
   const router = useRouter();
@@ -80,6 +87,8 @@ export default function HomePage() {
 
   // Top News state (Étape 5 & Home)
   const [topNews, setTopNews] = useState<TopNewsItem[]>([]);
+  const [selectedCountry, setSelectedCountry] = useState<string>("fr");
+  const [isLoadingTopNews, setIsLoadingTopNews] = useState<boolean>(false);
 
   // Press Review state (Étape 7)
   const [activeTab, setActiveTab] = useState<"chat" | "reviews">("chat");
@@ -105,13 +114,14 @@ export default function HomePage() {
     if (token) {
       loadChats();
       loadPressReviews();
-      loadTopNews();
+      loadTopNews("fr");
     }
   }, [token]);
 
-  const loadTopNews = async () => {
+  const loadTopNews = async (countryCode: string = selectedCountry) => {
+    setIsLoadingTopNews(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/top-news`, {
+      const res = await fetch(`${API_BASE_URL}/top-news?country=${countryCode}`, {
         headers: {
           Authorization: `Bearer ${token}`,
         },
@@ -124,7 +134,15 @@ export default function HomePage() {
       }
     } catch {
       // ignore, fallback to default examples
+    } finally {
+      setIsLoadingTopNews(false);
     }
+  };
+
+  const handleCountryChange = (countryCode: string) => {
+    if (countryCode === selectedCountry || isLoadingTopNews) return;
+    setSelectedCountry(countryCode);
+    loadTopNews(countryCode);
   };
 
 
@@ -808,27 +826,73 @@ ${review.press_review.perspectives ? `**Perspectives :**\n${review.press_review.
                     Posez-moi des questions sur l'actualité récente ou demandez-moi de préparer une synthèse sur un sujet spécifique.
                   </p>
 
-                  {topNews.length > 0 ? (
+                  {topNews.length > 0 || isLoadingTopNews ? (
                     <>
                       <div className={styles.topNewsHeader}>
-                        <span className={styles.topNewsBadge}>⚡ En direct</span>
-                        <span>Actualités phares du jour (Breaking News) :</span>
+                        <div className={styles.topNewsHeaderLeft}>
+                          <span className={styles.topNewsBadge}>⚡ En direct</span>
+                          <span>Actualités phares du jour (Breaking News) :</span>
+                        </div>
+                        <div
+                          className={styles.countrySelector}
+                          role="group"
+                          aria-label="Sélection du pays pour les actualités"
+                        >
+                          {COUNTRIES.map((c) => (
+                            <button
+                              key={c.code}
+                              type="button"
+                              onClick={() => handleCountryChange(c.code)}
+                              className={`${styles.countryBtn} ${
+                                selectedCountry === c.code ? styles.countryBtnActive : ""
+                              }`}
+                              title={`Afficher les actualités : ${c.label}`}
+                              disabled={isLoadingTopNews && selectedCountry === c.code}
+                            >
+                              <span>{c.flag}</span>
+                              <span className={styles.countryCodeLabel}>{c.code.toUpperCase()}</span>
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                      <ul className={styles.topNewsList}>
-                        {topNews.slice(0, 3).map((news, idx) => (
-                          <li
-                            key={idx}
-                            className={styles.topNewsItem}
-                            onClick={() => handleSendMessage(news.title)}
-                            title="Cliquez pour lancer une investigation sur ce sujet"
+
+                      {isLoadingTopNews ? (
+                        <div className={styles.topNewsLoading}>
+                          <svg
+                            className={styles.spinner}
+                            width="20"
+                            height="20"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="2"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
                           >
-                            <div className={styles.topNewsItemTitle}>{news.title}</div>
-                            {news.summary && (
-                              <div className={styles.topNewsItemSummary}>{news.summary}</div>
-                            )}
-                          </li>
-                        ))}
-                      </ul>
+                            <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                          </svg>
+                          <span>
+                            Chargement des actualités (
+                            {COUNTRIES.find((c) => c.code === selectedCountry)?.label})...
+                          </span>
+                        </div>
+                      ) : (
+                        <ul className={styles.topNewsList}>
+                          {topNews.slice(0, 3).map((news, idx) => (
+                            <li
+                              key={idx}
+                              className={styles.topNewsItem}
+                              onClick={() => handleSendMessage(news.title)}
+                              title="Cliquez pour lancer une investigation sur ce sujet"
+                            >
+                              <div className={styles.topNewsItemTitle}>{news.title}</div>
+                              {news.summary && (
+                                <div className={styles.topNewsItemSummary}>{news.summary}</div>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </>
                   ) : (
                     <>

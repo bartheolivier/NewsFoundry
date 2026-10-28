@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import logging
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlmodel import Session, select
@@ -228,12 +228,24 @@ async def create_chat(
 
 
 
+COUNTRY_LANGUAGE_MAP = {
+    "fr": "fr",
+    "us": "en",
+    "gb": "en",
+    "de": "de",
+    "es": "es",
+}
+
+
 @app.get("/top-news", response_model=list[TopNewsItem])
 async def get_top_news(
+    country: str = Query("fr", description="Code pays cible ('fr', 'us', 'gb', 'de', 'es')"),
     current_user: User = Depends(get_current_user),
 ):
-    """Récupère les 3 actualités phares du jour (avec mise en cache 1h)."""
-    top_news = await get_top_news_api(country="fr", language="fr")
+    """Récupère les 3 actualités phares du jour pour un pays sélectionné (avec mise en cache 1h)."""
+    norm_country = country.strip().lower()
+    language = COUNTRY_LANGUAGE_MAP.get(norm_country, "fr")
+    top_news = await get_top_news_api(country=norm_country, language=language)
     return top_news[:3]
 
 

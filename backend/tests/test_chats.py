@@ -303,12 +303,19 @@ def test_get_top_news_endpoint(client: TestClient):
         unauth_resp = client.get("/top-news")
         assert unauth_resp.status_code == 401
 
-        # Authorized with token
+        # Authorized with token (default France)
         resp = client.get("/top-news", headers={"Authorization": f"Bearer {token}"})
         assert resp.status_code == 200
         data = resp.json()
         assert len(data) == 1
         assert "Accord sur l'énergie" in data[0]["title"]
         assert "Résumé de l'accord" in data[0]["summary"]
+        mock_top.assert_called_with(country="fr", language="fr")
+
+        # Authorized with country US
+        resp_us = client.get("/top-news?country=us", headers={"Authorization": f"Bearer {token}"})
+        assert resp_us.status_code == 200
+        mock_top.assert_called_with(country="us", language="en")
+
 
 

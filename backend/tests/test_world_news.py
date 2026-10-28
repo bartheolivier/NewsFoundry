@@ -336,3 +336,44 @@ def test_deduplicate_news_articles():
     assert any("Macron" in t for t in titles)
     assert any("Brésil" in t for t in titles)
 
+
+@pytest.mark.anyio
+async def test_get_top_news_api_country_us_and_cache_isolation():
+    services.world_news._top_news_cache = {}
+
+    us_mock_data = {
+        "top_news": [
+            {
+                "news": [
+                    {
+                        "title": "US Federal Reserve cuts interest rates by 25 basis points",
+                        "summary": "The central bank announced a new rate reduction today in Washington.",
+                        "url": "https://example.com/fed-rates",
+                        "publish_date": "2026-10-28",
+                    }
+                ]
+            }
+        ]
+    }
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = us_mock_data
+
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_resp
+        articles_us = await get_top_news_api(country="us", language="en", api_key="dummy_key")
+        assert len(articles_us) == 1
+        assert "Federal Reserve" in articles_us[0]["title"]
+        assert mock_get.call_args[1]["params"] == {"source-country": "us", "language": "en"}
+
+        # Vérifier que le cache est bien isolé pour "us_en"
+        assert "us_en" in services.world_news._top_news_cache
+        assert "fr_fr" not in services.world_news._top_news_cache
+
+        # Appel ultérieur sur us utilise le cache (sans nouvel appel HTTP)
+        cached_us = await get_top_news_api(country="us", language="en", api_key="dummy_key")
+        assert len(cached_us) == 1
+        assert mock_get.call_count == 1
+
+
