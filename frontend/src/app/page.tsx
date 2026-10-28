@@ -882,7 +882,17 @@ ${review.press_review.perspectives ? `**Perspectives :**\n${review.press_review.
                             <li
                               key={idx}
                               className={styles.topNewsItem}
-                              onClick={() => handleSendMessage(news.title)}
+                              onClick={() => {
+                                const prompt =
+                                  selectedCountry === "us"
+                                    ? `Analyse cette actualité américaine (sources US) : "${news.title}"`
+                                    : selectedCountry === "gb"
+                                    ? `Analyse cette actualité britannique (sources UK) : "${news.title}"`
+                                    : selectedCountry === "de"
+                                    ? `Analyse cette actualité allemande (sources DE) : "${news.title}"`
+                                    : news.title;
+                                handleSendMessage(prompt);
+                              }}
                               title="Cliquez pour lancer une investigation sur ce sujet"
                             >
                               <div className={styles.topNewsItemTitle}>{news.title}</div>

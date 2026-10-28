@@ -197,12 +197,18 @@ async def create_chat(
     title = (chat_in.title if chat_in and chat_in.title else None) or default_title
 
     # Fetch top headlines to contextualize the initial system prompt of this discussion
-    top_news = await get_top_news_api(country="fr", language="fr")
+    is_international = bool(
+        chat_in and chat_in.title and any(
+            w in chat_in.title.lower() for w in ["us", "usa", "américain", "american", "uk", "british", "allemand", "german", "sources"]
+        )
+    )
     context_lines = []
-    if top_news:
-        context_lines.append("\nActualités phares du jour (contexte initial de la discussion) :")
-        for idx, art in enumerate(top_news[:3], 1):
-            context_lines.append(f"- {art['title']} : {art['summary']}")
+    if not is_international:
+        top_news = await get_top_news_api(country="fr", language="fr")
+        if top_news:
+            context_lines.append("\nActualités phares du jour (contexte initial de la discussion) :")
+            for idx, art in enumerate(top_news[:3], 1):
+                context_lines.append(f"- {art['title']} : {art['summary']}")
 
     chat_prompt = (
         DEFAULT_SYSTEM_PROMPT + "\n" + "\n".join(context_lines)

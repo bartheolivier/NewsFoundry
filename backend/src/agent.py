@@ -26,6 +26,12 @@ CONSIGNE DE RECHERCHE STRICTE POUR L'OUTIL `search_news` :
 - L'API WorldNewsAPI effectue une recherche stricte par mots-clés.
 - Ta `query` DOIT IMPÉRATIVEMENT être courte : 1 à 3 mots-clés maximum (ex: 'bourse Asie', 'CAC 40', 'Nikkei', 'Wall Street', 'taux OAT').
 - Ne mets JAMAIS de longues phrases, ni d'accumulation de synonymes ou de listes de pays (ex: STRICTEMENT INTERDIT : 'marches asiatiques bourses bourse de tokyo shanghai hong kong actualite').
+- CIBLAGE GÉOGRAPHIQUE ET LINGUISTIQUE DES SOURCES (RÈGLE ESSENTIELLE) :
+  * Si la requête concerne l'actualité des États-Unis / USA (ou si l'utilisateur soumet un titre ou une question en anglais / sources US) : tu DOIS IMPÉRATIVEMENT spécifier `language='en'` et `country='us'` dans `search_news` afin d'interroger directement les grands médias américains (Associated Press, New York Times, Washington Post, CNN, NBC, etc.) et NON des médias français.
+  * Si la requête concerne le Royaume-Uni (sources UK) : spécifie `language='en'` et `country='gb'`.
+  * Si la requête concerne l'Allemagne (sources DE) : spécifie `language='de'` et `country='de'`.
+  * Si la requête concerne la France : spécifie `language='fr'` et `country='fr'`.
+  * RÈGLE DE RÉDACTION : Rédige TOUJOURS ton analyse en français pour le journaliste (sauf demande contraire explicite), tout en traduisant et en citant fidèlement les articles des médias originaux du pays ciblé.
 2. Lecture approfondie d'articles : Tu as accès à l'outil `get_article_content`. Utilise-le dès que l'utilisateur demande des précisions, des citations exactes ou une analyse détaillée d'un article spécifique.
 3. Démarche journalistique : Adopte un ton journalistique, professionnel, objectif, clair et structuré.
 4. Formattage Markdown : Structure tes réponses avec soin en utilisant du Markdown (titres, listes à puces, éléments clés en gras).
@@ -205,25 +211,61 @@ def _simplify_query(q: str) -> str:
 async def search_news(
     ctx: RunContext[Optional[ChatDeps]],
     query: str,
-    language: str = "fr",
+    language: Optional[str] = None,
     country: Optional[str] = None,
 ) -> str:
     """Recherche des articles et dépêches d'actualités récentes sur un sujet ou un mot-clé via WorldNewsAPI.
 
     IMPORTANT : WorldNewsAPI est un moteur par mots-clés stricts. La query doit être très concise
-    (1 à 3 mots-clés maximum, ex: 'bourse Asie', 'CAC 40', 'Nikkei', 'Wall Street'). Ne pas mettre de phrases.
+    (1 à 3 mots-clés maximum, ex: 'Dolores Huerta', 'Wall Street', 'Fed rates', 'CAC 40'). Ne pas mettre de phrases.
+
+    CIBLAGE DES SOURCES INTERNATIONALES :
+    - Pour les États-Unis (ou sujet/titre en anglais américain) : spécifier language='en' et country='us'.
+    - Pour le Royaume-Uni : spécifier language='en' et country='gb'.
+    - Pour l'Allemagne : spécifier language='de' et country='de'.
+    - Pour la France : spécifier language='fr' et country='fr'.
 
     Args:
         query: Le mot-clé ou la thématique d'actualité recherchée (1 à 3 mots maximum).
-        language: Code langue des articles ('fr' pour le français, 'en' pour l'anglais).
-        country: Code pays optionnel de la source ('fr' pour France, 'us' pour États-Unis, etc.).
+        language: Code langue des articles ('fr', 'en', 'de', etc.).
+        country: Code pays de la source ('fr', 'us', 'gb', 'de', etc.).
     """
-    res = await search_news_api(query=query, language=language, country=country, number=5)
+    target_language = language
+    target_country = country
+
+    # Détection automatique de secours si l'agent n'a pas spécifié la langue ou le pays
+    if not target_language:
+        q_lower = query.lower()
+        uk_patterns = [r"\b(uk|britain|british|britannique|london|parliament|starmer|sunak)\b"]
+        de_patterns = [r"\b(germany|german|allemagne|allemand|scholz|bundestag|wirtschaft)\b"]
+        us_patterns = [
+            r"\b(us|usa|america|american|américain|américaine|états-unis|washington|biden|trump|harris|fed)\b",
+            r"\b(dies\s+at|killed|court|judge|strike|cuts|rates|stocks|election|labor|activist|senate|congress|white\s+house)\b",
+        ]
+
+        if any(re.search(p, q_lower) for p in uk_patterns):
+            target_language = "en"
+            target_country = target_country or "gb"
+        elif any(re.search(p, q_lower) for p in de_patterns):
+            target_language = "de"
+            target_country = target_country or "de"
+        elif any(re.search(p, q_lower) for p in us_patterns):
+            target_language = "en"
+            target_country = target_country or "us"
+        else:
+            target_language = "fr"
+            target_country = target_country or "fr"
+
+    res = await search_news_api(query=query, language=target_language, country=target_country, number=5)
     # If no news found and query was verbose, automatically retry with simplified keywords
     if not res.get("news") and not res.get("error"):
         simplified = _simplify_query(query)
         if simplified and simplified != query.lower():
-            res = await search_news_api(query=simplified, language=language, country=country, number=5)
+            res = await search_news_api(query=simplified, language=target_language, country=target_country, number=5)
+
+    # Si aucun résultat avec un filtre pays restrictif, tenter un fallback sur la langue seule (ex: sources anglophones)
+    if not res.get("news") and not res.get("error") and target_country:
+        res = await search_news_api(query=query, language=target_language, country=None, number=5)
 
     for item in res.get("news", []):
         _record_source(
