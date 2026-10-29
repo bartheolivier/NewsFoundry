@@ -11,13 +11,11 @@ _top_news_cache: dict[str, Any] = {}
 CACHE_TTL_SECONDS = 3600  # 1 hour cache
 
 IRRELEVANT_HEADLINE_PATTERNS = [
+    # Grilles de programmes, podcasts, chroniques récurrentes
     r"^le\s+\d+/\d+",                  # Ex: "Le 5/6 du lundi", "Le 6/9 du"
     r"^le\s+journal\s+de\s+\d+h",     # Ex: "Le journal de 8h"
     r"podcast",
-    r"horoscope",
-    r"météo\b",
-    r"\bweather\b",
-    r"\bforecast\b",
+    r"^episode\s+\d+",
     r"programme\s+tv",
     r"grille\s+des\s+programmes",
     r"ouverture\s+dans\s+un\s+nouvel\s+onglet",
@@ -25,7 +23,35 @@ IRRELEVANT_HEADLINE_PATTERNS = [
     r"^la\s+chronique\s+de",
     r"^le\s+billet\s+de",
     r"revue\s+de\s+presse\s+du",
-    r"^episode\s+\d+",
+
+    # Météo et prévisions
+    r"météo\b",
+    r"\bweather\b",
+    r"\bforecast\b",
+
+    # Jeux quotidiens, énigmes, puzzles (NYT Connections, Wordle, Strands, Crosswords)
+    r"\bconnections\b.*(hints?|answers?|today|clues?)",
+    r"(hints?|answers?).*\bconnections\b",
+    r"\bwordle\b",
+    r"\bstrands\b.*(hints?|answers?|today|spangram)",
+    r"\bquordle\b",
+    r"\b(crossword|puzzle)\b.*(hints?|answers?|clues?|solution)",
+    r"\bhints\s+and\s+answers\b",
+    r"\btoday's\s+answers?\b",
+    r"\bspelling\s+bee\b",
+    r"\bmini\s+crossword\b",
+
+    # Loteries et tirages
+    r"\b(powerball|mega\s+millions|lottery|lotto)\b.*(numbers?|winning|jackpot|drawing|results?)",
+    r"\bwinning\s+numbers\b",
+    r"tirage\s+du\s+(loto|euromillions)",
+    r"résultats?\s+du\s+(loto|euromillions)",
+
+    # Horoscopes, astrologie, codes promo
+    r"horoscope",
+    r"\b(zodiac|astrology|tarot)\b",
+    r"\b(promo|coupon)\s+codes?\b",
+    r"\bdeals?\s+of\s+the\s+day\b",
 ]
 
 

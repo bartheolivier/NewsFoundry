@@ -236,6 +236,47 @@ async def test_get_top_news_api_filters_podcasts_and_keeps_substantive():
 
 
 @pytest.mark.anyio
+async def test_get_top_news_api_filters_puzzles_and_games():
+    services.world_news._top_news_cache = {}
+    mock_data = {
+        "top_news": [
+            {
+                # Cluster 1 : Guide de jeu / puzzle NYT Connections (doit être ignoré)
+                "news": [
+                    {
+                        "title": "NYT Connections hints and answers for Thursday, October 29 (game #1236)",
+                        "summary": "Looking for NYT Connections answers and hints? Here's all you need to know to solve today's game.",
+                        "url": "https://example.com/nyt-connections",
+                        "publish_date": "2026-10-29",
+                    }
+                ]
+            },
+            {
+                # Cluster 2 : Vraie actualité politique / juridique (doit être retenue)
+                "news": [
+                    {
+                        "title": "Federal judge denies Trump administration's request to segregate 20,000 ballots",
+                        "summary": "A federal judge in California has rejected the Justice Department's push.",
+                        "url": "https://example.com/trump-ballots",
+                        "publish_date": "2026-10-29",
+                    }
+                ]
+            }
+        ]
+    }
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = mock_data
+
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_resp
+        articles = await get_top_news_api(country="us", language="en", api_key="dummy_key")
+        assert len(articles) == 1
+        assert "Federal judge denies" in articles[0]["title"]
+        assert "Connections" not in articles[0]["title"]
+
+
+@pytest.mark.anyio
 async def test_get_top_news_api_success():
     services.world_news._top_news_cache = {}
     mock_data = {
