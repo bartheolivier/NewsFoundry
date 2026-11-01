@@ -62,6 +62,15 @@ Conformément aux bonnes pratiques d'ingénierie de l'IA (et aux recommandations
 - WorldNewsAPI effectue une recherche stricte par mots-clés. Si un LLM génère une phrase de 8 mots (ex: *« marches asiatiques bourses bourse de tokyo shanghai »*), l'API renvoie 0 article.
 - Une fonction de nettoyage élimine les mots parasites (*actualite, presse, bourse, sur, les, de...*) et, en cas de résultat nul, relance automatiquement une requête ciblée sur les 2 ou 3 termes les plus discriminants, divisant le taux de recherche infructueuse par dix.
 
+### F. Déduplication Lexicale & Canonique des Dépêches (`deduplicate_news_articles`)
+- Dans la presse en ligne, une même dépêche d'agence (AFP, AP, Reuters) est souvent reprise mot pour mot par plusieurs quotidiens régionaux sous des URLs différentes ou avec des paramètres de tracking (`?utm_source=...`).
+- Le backend normalise chaque URL (`canonical_url`) et applique un calcul de similarité lexicale de Jaccard sur les mots significatifs des titres (seuil `>= 70 %`), tant à la réception des articles WorldNewsAPI que lors du formatage final de la section `Sources consultées`. Chaque source présentée au journaliste correspond ainsi à un article unique et distinct.
+
+### G. Ciblage Multi-Pays, Filtrage Anti-Bruit & Cache Compartimenté
+- **Sélecteur international (FR, US, UK, DE) :** Le journaliste peut explorer les actualités phares par pays tout en conservant une synthèse rédigée en français. Une double sécurité (consignes dans `DEFAULT_SYSTEM_PROMPT` + détection heuristique de secours en Python dans `search_news`) garantit l'interrogation directe des médias nationaux dans leur langue d'origine (`en`/`us`, `en`/`gb`, `de`/`de`, `fr`/`fr`), évitant de citer une simple reprise française pour un événement américain.
+- **Filtrage qualitatif (`is_relevant_headline`) :** Un moteur d'expressions régulières écarte automatiquement des Breaking News les contenus à fort volume mais sans valeur d'investigation (grilles radio, podcasts, bulletins météo, tirages de loterie *Powerball / Loto*, et guides de jeux quotidiens type *NYT Connections / Wordle*).
+- **Cache mémoire isolé 1h (`_top_news_cache`) :** Indexé par clé `{country}_{language}`, il protège le quota strict de 50 requêtes/jour de WorldNewsAPI tout en évitant toute collision entre les pays sélectionnés.
+
 ---
 
 ## 4. Système RAG : LlamaIndex en Mémoire (*In-Memory Vector Store*)
@@ -90,10 +99,12 @@ Plutôt que d'introduire une base de données vectorielle externe complexe et pa
 
 ---
 
-## 6. Authentification & Sécurité Multi-Tenant
+## 6. Authentification, Sécurité Multi-Tenant & Protection FinOps
 
-- **Tokens JWT Stateless :** Signature cryptographique HMAC-SHA256 avec expiration à 24 heures.
-- **Chiffrement des Mots de Passe :** Hachage robuste via `bcrypt` avec génération de sel unique (*salt*).
+- **Tokens JWT Stateless :** Signature cryptographique HMAC-SHA256 (`SECRET_KEY` dédiée en production) avec expiration à 24 heures.
+- **Chiffrement & Rotation des Identifiants :** Hachage robuste via `bcrypt` avec sel unique (*salt*). En production, les variables `DEMO_USER_EMAIL` et `DEMO_USER_PASSWORD` mettent automatiquement à jour le compte autorisé au démarrage et désactivent le mot de passe local par défaut (`test`), tandis que l'encadré d'auto-connexion est masqué sur le build de production Vercel (`NODE_ENV=production`).
+- **Protection Anti-Bruteforce & CORS Restreint :** Limitation automatique des tentatives échouées par IP sur `/login` (`MAX_LOGIN_ATTEMPTS`, rejet `HTTP 429`) et filtrage des origines autorisées via `CORS_ORIGINS`.
+- **Plafond Quotidien de Sécurité IA (`MAX_DAILY_AI_CALLS`) :** Garde-fou FinOps applicatif empêchant tout emballement ou consommation abusive des abonnements facturés à l'usage (Google Gemini & WorldNewsAPI) au-delà d'un seuil journalier configurable.
 - **Isolation Stricte (403 Forbidden) :** Chaque endpoint vérifie rigoureusement que la ressource demandée (`chat_id`) appartient au `user_id` extrait du token. Aucun utilisateur ne peut accéder, modifier ou supprimer le travail d'un confrère.
 
 ---
@@ -119,19 +130,25 @@ Règles impératives :
 1. Recherche d'actualités en direct : Tu as accès à l'outil `search_news`. Utilise-le SYSTÉMATIQUEMENT dès que la question porte sur des événements récents, marchés financiers, faits du jour.
    - Ta query doit être concise : 1 à 3 mots-clés maximum (ex: 'bourse Asie', 'CAC 40', 'Nikkei').
    - Ne mets jamais de longues phrases ou listes de pays.
+   - CIBLAGE GÉOGRAPHIQUE ET LINGUISTIQUE DES SOURCES :
+     * USA : `language='en'` et `country='us'` (médias américains originaux).
+     * Royaume-Uni : `language='en'` et `country='gb'`.
+     * Allemagne : `language='de'` et `country='de'`.
+     * France : `language='fr'` et `country='fr'`.
+     * Rédige toujours ton analyse en français pour le journaliste (sauf demande contraire).
 2. Lecture approfondie d'articles : Utilise `get_article_content` dès qu'une analyse détaillée ou citation exacte est demandée.
 3. Démarche journalistique : Ton journalistique, objectif, clair et structuré.
 4. Formattage Markdown : Structure tes réponses avec soin (titres, listes à puces, éléments clés en gras).
-5. CITATION OBLIGATOIRE DES SOURCES AVEC LIENS CLIQUABLES : Inclus les liens [Nom du média - Titre](url) et termine par la section `### 📰 Sources consultées`.
+5. CITATION OBLIGATOIRE DES SOURCES AVEC LIENS CLIQUABLES & DÉDUPLICATION : Inclus les liens [Nom du média - Titre](url) et termine par la section `### 📰 Sources consultées` sans aucun doublon.
 6. TRANSPARENCE ET VÉRACITÉ (RÈGLE ABSOLUE) : Si aucun article n'est trouvé, indique-le clairement ("Aucun article récent n'a été trouvé..."). Il est formellement interdit d'inventer des citations de presse fictives si tu n'as pas obtenu les articles via search_news.
 ```
 
 **Justifications des choix :**
-1. **Règle de citation systématique (Règle 5) :** Dans le journalisme, une information sans source vérifiable est inutilisable. Le prompt force le modèle à mentionner la source et à formater les liens markdown `[Titre](URL)`. En complément, une garantie déterministe applicative (`ensure_sources_section`) injecte la section si le LLM omet de la retranscrire lors de dialogues longs.
-2. **Déclenchement systématique et calibrage des requêtes (Règles 1 et 2) :** L'exigence de requêtes courtes (1 à 3 mots-clés) empêche le modèle d'envoyer des phrases entières qui satureraient le moteur de recherche WorldNewsAPI.
+1. **Règle de citation systématique et déduplication (Règle 5) :** Dans le journalisme, une information sans source vérifiable est inutilisable. Le prompt force le modèle à mentionner la source et à formater les liens markdown `[Titre](URL)`. En complément, une garantie déterministe applicative (`ensure_sources_section` + `deduplicate_sources_section`) injecte la section et nettoie les doublons si le LLM omet de la retranscrire lors de dialogues longs.
+2. **Déclenchement systématique, calibrage des requêtes et ciblage géographique (Règles 1 et 2) :** L'exigence de requêtes courtes (1 à 3 mots-clés) empêche le modèle d'envoyer des phrases entières qui satureraient le moteur de recherche WorldNewsAPI, tandis que le ciblage par pays/langue assure l'exploitation de sources primaires locales plutôt que de dépêches secondaires traduites.
 3. **Vérité absolue et interdiction de citations fictives (Règle 6) :** Empêche le modèle d'affirmer « comme le rapportent Reuters ou Bloomberg » s'il n'a pas réellement récupéré les articles récents via ses outils.
 4. **Ton et posture déontologique (Règle 3) :** Imposer un ton neutre, factuel et structuré évite les tournures flatteuses ou les jugements de valeur inappropriés pour une rédaction.
-5. **Contextualisation dynamique initiale (`/top-news`) :** Lors de la création d'une nouvelle discussion, l'API interroge les manchettes phares du jour via WorldNewsAPI et les injecte dans le `system_prompt` de la session. Cela permet à l'assistant d'être immédiatement au fait de l'actualité du jour dès le premier message, sans attendre une question explicite.
+5. **Contextualisation dynamique initiale (`/top-news`) :** Lors de la création d'une nouvelle discussion standard, l'API interroge les 3 manchettes françaises phares du jour via WorldNewsAPI et les injecte dans le `system_prompt` de la session (en omettant ce contexte français lorsqu'une enquête internationale spécifique est ouverte). Cela permet à l'assistant d'être immédiatement au fait de l'actualité du jour dès le premier message.
 
 ---
 
@@ -163,8 +180,10 @@ Pour garantir une intégration robuste et informer l'utilisateur de manière pr�
 
 | Endpoint | Code HTTP | Raison / Scénario de déclenchement | Exemple de payload retourné |
 | :--- | :---: | :--- | :--- |
-| `POST /login` | **401 Unauthorized** | Email inconnu ou mot de passe invalide | `{"detail": "Email ou mot de passe incorrect."}` |
+| `POST /login` | **401 Unauthorized** | Email inconnu ou mot de passe invalide | `{"detail": "Email ou mot de passe incorrect"}` |
+| `POST /login` | **429 Too Many Requests** | Dépassement du seuil anti-bruteforce (`MAX_LOGIN_ATTEMPTS`) | `{"detail": "Trop de tentatives de connexion échouées. Veuillez patienter 15 minutes..."}` |
 | `GET /me` | **401 Unauthorized** | Token JWT manquant, invalide ou expiré | `{"detail": "Token d'authentification invalide ou expiré."}` |
+| `GET /top-news` | **401 Unauthorized** | Accès aux manchettes sans token JWT valide | `{"detail": "Not authenticated"}` |
 | `GET /chats/{id}` | **404 Not Found** | La discussion demandée n'existe pas en BDD | `{"detail": "Discussion non trouvée"}` |
 | `GET /chats/{id}` | **403 Forbidden** | La discussion appartient à un autre utilisateur | `{"detail": "Accès interdit : vous n'êtes pas autorisé à consulter cette discussion."}` |
 | `PATCH /chats/{id}` | **400 Bad Request** | Le nouveau titre fourni est vide ou constitué uniquement d'espaces | `{"detail": "Le titre de la discussion ne peut pas être vide."}` |

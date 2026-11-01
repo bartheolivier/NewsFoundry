@@ -1,3 +1,4 @@
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -11,11 +12,24 @@ from sqlmodel import Session, select
 from database import get_session
 from models import User
 
-SECRET_KEY = os.getenv("SECRET_KEY", "newsfoundry-secret-key-production-2026")
+logger = logging.getLogger("uvicorn.error")
+
+DEFAULT_DEV_SECRET_KEY = "newsfoundry-dev-only-secret-key-change-in-prod"
+SECRET_KEY = os.getenv("SECRET_KEY", DEFAULT_DEV_SECRET_KEY)
+if os.getenv("RAILWAY_ENVIRONMENT") and SECRET_KEY == DEFAULT_DEV_SECRET_KEY:
+    logger.warning(
+        "SECURITY WARNING: SECRET_KEY utilise la valeur de développement par défaut. "
+        "Veuillez configurer une variable SECRET_KEY robuste sur Railway."
+    )
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
 
 security = HTTPBearer(auto_error=False)
+
+
+def _get_secret_key() -> str:
+    return os.getenv("SECRET_KEY", SECRET_KEY)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
@@ -51,7 +65,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
     else:
         expire = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, _get_secret_key(), algorithm=ALGORITHM)
     return encoded_jwt
 
 
@@ -68,7 +82,7 @@ def get_current_user(
         )
     token = credentials.credentials
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, _get_secret_key(), algorithms=[ALGORITHM])
         email: str = payload.get("sub")
         if email is None:
             raise HTTPException(

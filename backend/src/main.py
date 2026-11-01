@@ -1,4 +1,5 @@
 import os
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional
@@ -53,14 +54,76 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS configuration to allow requests from Next.js frontend (local & Vercel)
+def get_allowed_origins() -> list[str]:
+    """Retourne la liste des origines CORS autorisées (configurable via CORS_ORIGINS)."""
+    raw = os.getenv("CORS_ORIGINS", "*").strip()
+    if not raw or raw == "*":
+        return ["*"]
+    return [origin.strip().rstrip("/") for origin in raw.split(",") if origin.strip()]
+
+
+# CORS configuration to allow requests from Next.js frontend (configurable via CORS_ORIGINS)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=get_allowed_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- SECURITY GUARDS (ANTI-BRUTEFORCE & BILLING PROTECTION) ---
+LOGIN_WINDOW_SECONDS = 900  # 15 minutes
+AI_WINDOW_SECONDS = 86400   # 24 hours
+_failed_login_attempts: dict[str, list[float]] = {}
+_ai_call_timestamps: list[float] = []
+
+
+def _get_client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _check_login_rate_limit(client_ip: str) -> None:
+    max_attempts = int(os.getenv("MAX_LOGIN_ATTEMPTS", "8"))
+    if max_attempts <= 0:
+        return
+    now = time.time()
+    recent = [ts for ts in _failed_login_attempts.get(client_ip, []) if now - ts < LOGIN_WINDOW_SECONDS]
+    _failed_login_attempts[client_ip] = recent
+    if len(recent) >= max_attempts:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Trop de tentatives de connexion échouées. Veuillez patienter 15 minutes avant de réessayer.",
+        )
+
+
+def _record_failed_login(client_ip: str) -> None:
+    now = time.time()
+    recent = [ts for ts in _failed_login_attempts.get(client_ip, []) if now - ts < LOGIN_WINDOW_SECONDS]
+    recent.append(now)
+    _failed_login_attempts[client_ip] = recent
+
+
+def _clear_failed_logins(client_ip: str) -> None:
+    _failed_login_attempts.pop(client_ip, None)
+
+
+def _enforce_daily_ai_quota() -> None:
+    """Protège la facturation API (Gemini & WorldNewsAPI) contre un emballement ou usage abusif."""
+    max_daily = int(os.getenv("MAX_DAILY_AI_CALLS", "100"))
+    if max_daily <= 0:
+        return
+    now = time.time()
+    global _ai_call_timestamps
+    _ai_call_timestamps = [ts for ts in _ai_call_timestamps if now - ts < AI_WINDOW_SECONDS]
+    if len(_ai_call_timestamps) >= max_daily:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Plafond quotidien de sécurité de requêtes IA atteint pour protéger la facturation des APIs.",
+        )
+    _ai_call_timestamps.append(now)
 
 
 def handle_llm_exception(exc: Exception) -> HTTPException:
@@ -103,11 +166,14 @@ def handle_llm_exception(exc: Exception) -> HTTPException:
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Unhandled exception on {request.method} {request.url}: {exc}", exc_info=True)
+    allowed = get_allowed_origins()
+    req_origin = (request.headers.get("origin") or "").rstrip("/")
+    cors_origin = "*" if allowed == ["*"] else (req_origin if req_origin in allowed else allowed[0])
     return JSONResponse(
         status_code=500,
         content={"detail": f"Erreur interne du serveur: {str(exc)}"},
         headers={
-            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Origin": cors_origin,
             "Access-Control-Allow-Headers": "*",
             "Access-Control-Allow-Methods": "*",
         },
@@ -129,18 +195,27 @@ async def hello():
 
 
 @app.post("/login", response_model=LoginResponse)
-async def login(credentials: LoginRequest, session: Session = Depends(get_session)):
-    """Authenticates a user and returns a JWT access token."""
+async def login(
+    credentials: LoginRequest,
+    request: Request,
+    session: Session = Depends(get_session),
+):
+    """Authenticates a user and returns a JWT access token (protected against brute-force)."""
+    client_ip = _get_client_ip(request)
+    _check_login_rate_limit(client_ip)
+
     statement = select(User).where(User.email == credentials.email)
     user = session.exec(statement).first()
 
     if not user or not verify_password(credentials.password, user.hashed_password):
+        _record_failed_login(client_ip)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Email ou mot de passe incorrect",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    _clear_failed_logins(client_ip)
     access_token = create_access_token(data={"sub": user.email, "user_id": user.id})
     return LoginResponse(
         access_token=access_token,
@@ -384,6 +459,7 @@ async def send_message(
     }
 
     # 2. Run PydanticAI agent with history and latest system prompt
+    _enforce_daily_ai_quota()
     custom_context = ""
     if chat.system_prompt and "Actualités phares du jour" in chat.system_prompt:
         custom_context = "\n\n" + chat.system_prompt[chat.system_prompt.index("Actualités phares du jour"):]
@@ -471,6 +547,8 @@ async def create_chat_press_review(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Impossible de générer une revue de presse à partir d'une discussion vide. Veuillez d'abord échanger avec l'assistant.",
         )
+
+    _enforce_daily_ai_quota()
 
     # 1. Étape 8 : Récupération du contexte RAG à partir des articles explorés
     rag_context = None

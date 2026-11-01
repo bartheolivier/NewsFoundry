@@ -40,6 +40,11 @@ export default function LoginPage() {
     }
   };
 
+  const showDemoCredentials =
+    process.env.NEXT_PUBLIC_SHOW_DEMO_CREDENTIALS === "true" ||
+    (process.env.NODE_ENV === "development" &&
+      process.env.NEXT_PUBLIC_SHOW_DEMO_CREDENTIALS !== "false");
+
   const handleFillDemo = () => {
     setEmail("test@test.com");
     setPassword("test");
@@ -139,14 +144,16 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <div className={styles.demoBox}>
-          <div>
-            Compte de démonstration : <code>test@test.com</code> / <code>test</code>
+        {showDemoCredentials && (
+          <div className={styles.demoBox}>
+            <div>
+              Compte de démonstration : <code>test@test.com</code> / <code>test</code>
+            </div>
+            <button type="button" className={styles.demoBtn} onClick={handleFillDemo}>
+              Remplir automatiquement
+            </button>
           </div>
-          <button type="button" className={styles.demoBtn} onClick={handleFillDemo}>
-            Remplir automatiquement
-          </button>
-        </div>
+        )}
       </div>
     </main>
   );

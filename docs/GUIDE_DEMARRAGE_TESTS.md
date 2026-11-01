@@ -16,11 +16,18 @@ Ce guide fournit l'ensemble des instructions nécessaires pour installer le proj
 ## ⚙️ 2. Configuration des Variables d'Environnement
 
 ### Backend (`backend/.env`)
-Créez un fichier `.env` dans le dossier `backend/` en vous basant sur l'exemple ci-dessous :
+Créez un fichier `.env` dans le dossier `backend/` en vous basant sur `backend/.env.example` :
 
 ```env
-# Sécurité & JWT
+# Sécurité JWT & Compte d'accès initial (à personnaliser impérativement en production Railway)
 SECRET_KEY="newsfoundry-secret-key-development-2026"
+DEMO_USER_EMAIL="test@test.com"
+DEMO_USER_PASSWORD="test"
+
+# Protection CORS & Garde-fous FinOps (anti-bruteforce et plafond quotidien IA)
+CORS_ORIGINS="*"
+MAX_LOGIN_ATTEMPTS=8
+MAX_DAILY_AI_CALLS=100
 
 # Base de Données PostgreSQL
 DATABASE_URL="postgresql://user:password@localhost:5432/newsfoundry"
@@ -41,6 +48,8 @@ Créez un fichier `.env.local` dans le dossier `frontend/` :
 
 ```env
 NEXT_PUBLIC_API_URL="http://localhost:8000"
+# En production (Vercel), le bouton d'auto-connexion démo est masqué par défaut (NODE_ENV=production)
+# NEXT_PUBLIC_SHOW_DEMO_CREDENTIALS="false"
 ```
 
 ---
@@ -114,7 +123,7 @@ Pour simplifier le lancement lors des sessions de développement et de démonstr
 
 ## 🧪 4. Exécution des Tests Automatisés
 
-Le backend dispose d'une suite de **50 tests automatisés** couvrant l'intégralité du cycle de vie de l'application (authentification, sécurité multi-tenant, gestion d'erreurs WorldNewsAPI, garantie déterministe des sources, gestion des quotas LLM, synthèse de revue de presse et indexation RAG LlamaIndex).
+Le backend dispose d'une suite de **62 tests automatisés** couvrant l'intégralité du cycle de vie de l'application (authentification, sécurité multi-tenant, rotation des identifiants en production, protection anti-bruteforce, plafond quotidien de requêtes IA, gestion d'erreurs WorldNewsAPI, filtrage anti-bruit des manchettes, déduplication des dépêches syndiquées, cache multi-pays des Breaking News, garantie déterministe des sources, gestion des quotas LLM, synthèse de revue de presse et indexation RAG LlamaIndex).
 
 ### A. Lancer l'Intégralité de la Suite de Tests Backend
 Depuis le dossier `backend/` :
@@ -126,7 +135,7 @@ PYTHONPATH=src uv run --env-file .env pytest -v
 ### B. Lancer un Module de Test Spécifique
 
 ```bash
-# Tests de garantie déterministe des sources et formatage Markdown (4 tests)
+# Tests de garantie déterministe des sources, déduplication et formatage Markdown (6 tests)
 PYTHONPATH=src uv run --env-file .env pytest tests/test_sources.py -v
 
 # Tests RAG et indexation vectorielle LlamaIndex (6 tests)
@@ -135,13 +144,13 @@ PYTHONPATH=src uv run --env-file .env pytest tests/test_rag.py -v
 # Tests de la revue de presse et Structured Outputs (7 tests)
 PYTHONPATH=src uv run --env-file .env pytest tests/test_press_review.py -v
 
-# Tests de sécurité des discussions, isolation multi-utilisateurs et erreurs IA (13 tests)
+# Tests de sécurité des discussions, isolation multi-utilisateurs, /top-news et erreurs IA (14 tests)
 PYTHONPATH=src uv run --env-file .env pytest tests/test_chats.py -v
 
-# Tests d'authentification JWT et hachage de mot de passe (7 tests)
+# Tests d'authentification JWT, rotation de mot de passe, anti-bruteforce et plafond FinOps (11 tests)
 PYTHONPATH=src uv run --env-file .env pytest tests/test_auth.py -v
 
-# Tests des outils WorldNewsAPI et résilience aux erreurs HTTP (13 tests)
+# Tests WorldNewsAPI, filtrage anti-bruit, déduplication, cache multi-pays et erreurs HTTP (18 tests)
 PYTHONPATH=src uv run --env-file .env pytest tests/test_world_news.py -v
 ```
 
@@ -160,6 +169,6 @@ npm run lint
 
 ## 🌐 5. Environnements de Déploiement Cloud (Production)
 
-- **Frontend (Vercel) :** [https://news-foundry-6qc6tpcon-bartheoliviers-projects.vercel.app](https://news-foundry-6qc6tpcon-bartheoliviers-projects.vercel.app)
-- **Backend (Railway) :** [https://newsfoundry-production-e3fe.up.railway.app](https://newsfoundry-production-e3fe.up.railway.app)
-- **Documentation API Swagger en Production :** [https://newsfoundry-production-e3fe.up.railway.app/docs](https://newsfoundry-production-e3fe.up.railway.app/docs)
+- **Frontend :** Déployé en continu sur **Vercel** (`Root Directory: frontend`).
+- **Backend & Base PostgreSQL 17 :** Déployés via conteneur Docker sur **Railway** (`Root Directory: backend`).
+- **Confidentialité & Maîtrise FinOps :** Afin de protéger les abonnements d'APIs facturés à l'usage (Google Gemini & WorldNewsAPI), les URLs publiques de production ainsi que les identifiants dédiés (`DEMO_USER_EMAIL` / `DEMO_USER_PASSWORD`) ne figurent pas dans le dépôt Git public et sont transmis de manière confidentielle au jury lors du dépôt du livrable.

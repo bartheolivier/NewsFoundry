@@ -127,14 +127,15 @@ articles_data = await asyncio.gather(*tasks, return_exceptions=True)
 
 ---
 
-## 🎯 5. Piste n°4 : Cache Intelligent pour WorldNewsAPI
+## 🎯 5. Piste n°4 : Cache Intelligent Distribué pour `search_news` (WorldNewsAPI)
 
 ### A. Constat & Justification
 - Sur le plan gratuit, l'API WorldNewsAPI est plafonnée à **50 requêtes par jour**.
-- De plus, les actualités du jour ne changent pas d'une minute à l'autre : deux journalistes explorant le même sujet (ou un même journaliste reformulant sa question) effectuent des appels redondants qui consomment inutilement le quota et introduisent 1.5s de latence réseau.
+- Si l'endpoint des Breaking News (`/top-news`) bénéficie déjà d'un **cache mémoire en RAM d'une heure isolé par couple `{country}_{language}`** (`_top_news_cache`), les recherches ad-hoc déclenchées par l'outil `search_news` lors des conversations ne sont pas encore mises en cache ni partagées entre plusieurs conteneurs.
+- Or, les actualités du jour ne changent pas d'une minute à l'autre : deux journalistes explorant le même sujet (ou un même journaliste reformulant sa question) effectuent des appels `search_news` redondants qui consomment inutilement le quota et introduisent 1.5s de latence réseau.
 
 ### B. Solution Technique Proposée
-- Déployer un cache mémoire (ex: `Cachetools` en Python ou un cluster Redis léger).
+- Étendre la stratégie de cache à `search_news_api` et `extract_article_content_api` via un cluster Redis léger partagé (ou `Cachetools` avec borne LRU en mono-instance).
 - Clé de cache : `hash(query + language + country)`.
 - **TTL (Time to Live) glissant :** 15 à 30 minutes (suffisant pour des actualités en direct tout en évitant les doublons d'investigation immédiats).
 - En cas de cache hit : temps de réponse **< 5 ms** au lieu de 1 500 ms, avec 0 requête consommée sur le quota WorldNewsAPI.

@@ -13,7 +13,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from sqlmodel.pool import StaticPool
 
 from database import get_session
-from main import app
+from main import _ai_call_timestamps, _failed_login_attempts, app
 from models import User
 
 
@@ -52,6 +52,9 @@ def session_fixture():
 
 @pytest.fixture(name="client")
 def client_fixture(session: Session):
+    _failed_login_attempts.clear()
+    _ai_call_timestamps.clear()
+
     def get_session_override():
         return session
 
@@ -59,3 +62,5 @@ def client_fixture(session: Session):
     client = TestClient(app)
     yield client
     app.dependency_overrides.clear()
+    _failed_login_attempts.clear()
+    _ai_call_timestamps.clear()

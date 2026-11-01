@@ -57,12 +57,23 @@ def init_db():
         except Exception as e:
             print(f"Migration note (loaded_articles update): {e}")
 
-    # Creating or repairing default user
-    default_email = "test@test.com"
-    default_password = "test"
+    # Creating or synchronizing default/demo user from environment variables
+    seed_default_user(engine)
+
+
+def seed_default_user(target_engine=None) -> None:
+    """Crée ou synchronise le compte utilisateur initial à partir des variables d'environnement.
+
+    En local (par défaut) : test@test.com / test.
+    En production (Railway) : définir DEMO_USER_EMAIL et DEMO_USER_PASSWORD met à jour
+    automatiquement le hachage en base et désactive le mot de passe par défaut 'test'.
+    """
+    db_engine = target_engine or engine
+    default_email = os.getenv("DEMO_USER_EMAIL", "test@test.com").strip() or "test@test.com"
+    default_password = os.getenv("DEMO_USER_PASSWORD", "test")
     clean_hash = bcrypt.hashpw(default_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
-    with Session(engine) as session:
+    with Session(db_engine) as session:
         statement = select(User).where(User.email == default_email)
         user = session.exec(statement).first()
 
@@ -74,10 +85,34 @@ def init_db():
                 )
             )
             session.commit()
-        elif user.hashed_password.startswith("\\x"):
-            user.hashed_password = clean_hash
-            session.add(user)
-            session.commit()
+        else:
+            needs_update = user.hashed_password.startswith("\\x")
+            if not needs_update:
+                try:
+                    needs_update = not bcrypt.checkpw(
+                        default_password.encode("utf-8"),
+                        user.hashed_password.encode("utf-8"),
+                    )
+                except Exception:
+                    needs_update = True
+            if needs_update:
+                user.hashed_password = clean_hash
+                session.add(user)
+                session.commit()
+
+        # Si un email personnalisé et un mot de passe fort sont définis en production,
+        # neutraliser l'éventuel ancien compte test@test.com s'il utilisait encore 'test'
+        if default_email != "test@test.com" and default_password != "test":
+            legacy_user = session.exec(select(User).where(User.email == "test@test.com")).first()
+            if legacy_user:
+                try:
+                    still_weak = bcrypt.checkpw(b"test", legacy_user.hashed_password.encode("utf-8"))
+                except Exception:
+                    still_weak = True
+                if still_weak:
+                    legacy_user.hashed_password = clean_hash
+                    session.add(legacy_user)
+                    session.commit()
 
 
 
